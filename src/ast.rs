@@ -7,15 +7,15 @@ pub enum Stmt<'a> {
     Print(Box<PrintStmt<'a>>),
 }
 
-pub trait StmtVisitor<T> {
-    fn visit_expression_stmt(&self, stmt: &ExpressionStmt) -> T;
-    fn visit_block_stmt(&self, stmt: &BlockStmt) -> T;
-    fn visit_var_stmt(&self, stmt: &VarStmt) -> T;
-    fn visit_print_stmt(&self, stmt: &PrintStmt) -> T;
+pub trait StmtVisitor<'a, T> {
+    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt<'a>) -> T;
+    fn visit_block_stmt(&mut self, stmt: &BlockStmt<'a>) -> T;
+    fn visit_var_stmt(&mut self, stmt: &VarStmt<'a>) -> T;
+    fn visit_print_stmt(&mut self, stmt: &PrintStmt<'a>) -> T;
 }
 
 impl<'a> Stmt<'a> {
-    pub fn accept<T, V: StmtVisitor<T>>(&self, visitor: V) -> T {
+    pub fn accept<T, V: StmtVisitor<'a, T>>(&self, visitor: &mut V) -> T {
         use Stmt::*;
         match self {
             Expression(expr) => visitor.visit_expression_stmt(expr),
@@ -52,17 +52,17 @@ pub enum Expr<'a> {
     Grouping(Box<GroupingExpr<'a>>),
 }
 
-pub trait ExprVisitor<T> {
-    fn visit_literal_expr(&self, expr: &LiteralExpr) -> T;
-    fn visit_variable_expr(&self, expr: &VariableExpr) -> T;
-    fn visit_assign_expr(&self, expr: &AssignExpr) -> T;
-    fn visit_unary_expr(&self, expr: &UnaryExpr) -> T;
-    fn visit_binary_expr(&self, expr: &BinaryExpr) -> T;
-    fn visit_grouping_expr(&self, expr: &GroupingExpr) -> T;
+pub trait ExprVisitor<'a, T> {
+    fn visit_literal_expr(&mut self, expr: &LiteralExpr<'a>) -> T;
+    fn visit_variable_expr(&mut self, expr: &VariableExpr<'a>) -> T;
+    fn visit_assign_expr(&mut self, expr: &AssignExpr<'a>) -> T;
+    fn visit_unary_expr(&mut self, expr: &UnaryExpr<'a>) -> T;
+    fn visit_binary_expr(&mut self, expr: &BinaryExpr<'a>) -> T;
+    fn visit_grouping_expr(&mut self, expr: &GroupingExpr<'a>) -> T;
 }
 
 impl<'a> Expr<'a> {
-    pub fn accept<T, V: ExprVisitor<T>>(&self, visitor: V) -> T {
+    pub fn accept<T, V: ExprVisitor<'a, T>>(&self, visitor: &mut V) -> T {
         use Expr::*;
         match self {
             Literal(expr) => visitor.visit_literal_expr(expr),

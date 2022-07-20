@@ -5,15 +5,24 @@ use std::{
     process::exit,
 };
 
-use crate::scanner::Scanner;
+use crate::{
+    ast::{Expr, LiteralExpr, PrintStmt, Stmt},
+    interpreter::Interpreter,
+    scanner::Scanner,
+    token::LiteralValue,
+};
 
 pub struct Lox {
     had_error: bool,
+    interpreter: Interpreter,
 }
 
 impl Lox {
     pub fn new() -> Lox {
-        Lox { had_error: false }
+        Lox {
+            had_error: false,
+            interpreter: Interpreter::new(),
+        }
     }
 
     pub fn main(&mut self) {
@@ -66,6 +75,41 @@ impl Lox {
         let (tokens, _lox) = scanner.scan_tokens();
 
         println!("Tokens: {:#?}", tokens);
+
+        let statements = vec![
+            Stmt::Print(Box::new(PrintStmt {
+                expression: Expr::Literal(Box::new(LiteralExpr {
+                    value: LiteralValue::Nil,
+                })),
+            })),
+            Stmt::Print(Box::new(PrintStmt {
+                expression: Expr::Literal(Box::new(LiteralExpr {
+                    value: LiteralValue::Bool(true),
+                })),
+            })),
+            Stmt::Print(Box::new(PrintStmt {
+                expression: Expr::Literal(Box::new(LiteralExpr {
+                    value: LiteralValue::Number(0.0),
+                })),
+            })),
+            Stmt::Print(Box::new(PrintStmt {
+                expression: Expr::Literal(Box::new(LiteralExpr {
+                    value: LiteralValue::Number(0.1),
+                })),
+            })),
+            Stmt::Print(Box::new(PrintStmt {
+                expression: Expr::Literal(Box::new(LiteralExpr {
+                    value: LiteralValue::String("Hello, World!"),
+                })),
+            })),
+            Stmt::Print(Box::new(PrintStmt {
+                expression: Expr::Literal(Box::new(LiteralExpr {
+                    value: LiteralValue::String("How are you?"),
+                })),
+            })),
+        ];
+
+        self.interpreter.interpret(&statements).unwrap();
     }
 
     pub fn scanner_error(&mut self, line: usize, message: &str) {

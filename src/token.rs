@@ -51,8 +51,10 @@ pub enum TokenType {
 
 #[derive(Debug)]
 pub enum LiteralValue<'a> {
-    String(&'a str),
+    Nil,
+    Bool(bool),
     Number(f64),
+    String(&'a str),
 }
 
 #[derive(Debug)]
