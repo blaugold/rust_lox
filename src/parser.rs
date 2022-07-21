@@ -60,11 +60,10 @@ impl<'a> Parser<'a> {
             }
 
             use TokenType::*;
-            match self.peek().token_type {
-                Var | Fun | Class | This | Super | If | For | While | Return => {
-                    break;
-                }
-                _ => {}
+            if let Var | Fun | Class | This | Super | If | For | While | Return =
+                self.peek().token_type
+            {
+                break;
             }
 
             self.advance();

@@ -256,9 +256,8 @@ fn check_numeric_operand<'a>(
     operator: &'a Token<'a>,
     operand: &RuntimeValue,
 ) -> Result<f64, RuntimeError<'a>> {
-    match *operand {
-        RuntimeValue::Number(value) => return Ok(value),
-        _ => {}
+    if let RuntimeValue::Number(value) = *operand {
+        return Ok(value);
     }
 
     Err(RuntimeError {
@@ -272,12 +271,10 @@ fn check_numeric_operands<'a>(
     left_operand: &RuntimeValue,
     right_operand: &RuntimeValue,
 ) -> Result<(f64, f64), RuntimeError<'a>> {
-    match *left_operand {
-        RuntimeValue::Number(left_value) => match *right_operand {
-            RuntimeValue::Number(right_value) => return Ok((left_value, right_value)),
-            _ => {}
-        },
-        _ => {}
+    if let RuntimeValue::Number(left_value) = *left_operand {
+        if let RuntimeValue::Number(right_value) = *right_operand {
+            return Ok((left_value, right_value));
+        }
     }
 
     Err(RuntimeError {
