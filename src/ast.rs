@@ -31,12 +31,12 @@ pub struct ExpressionStmt<'a> {
 }
 
 pub struct BlockStmt<'a> {
-    pub expressions: Vec<Stmt<'a>>,
+    pub statements: Vec<Stmt<'a>>,
 }
 
 pub struct VarStmt<'a> {
-    pub name: Token<'a>,
-    pub expression: Expr<'a>,
+    pub name: &'a Token<'a>,
+    pub initializer: Option<Expr<'a>>,
 }
 
 pub struct PrintStmt<'a> {
@@ -80,22 +80,22 @@ pub struct LiteralExpr<'a> {
 }
 
 pub struct VariableExpr<'a> {
-    pub identifier: Token<'a>,
+    pub name: &'a Token<'a>,
 }
 
 pub struct AssignExpr<'a> {
-    pub left: Expr<'a>,
-    pub right: Expr<'a>,
+    pub name: &'a Token<'a>,
+    pub value: Expr<'a>,
 }
 
 pub struct UnaryExpr<'a> {
-    pub operator: Token<'a>,
+    pub operator: &'a Token<'a>,
     pub expression: Expr<'a>,
 }
 
 pub struct BinaryExpr<'a> {
     pub left: Expr<'a>,
-    pub operator: Token<'a>,
+    pub operator: &'a Token<'a>,
     pub right: Expr<'a>,
 }
 

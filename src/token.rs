@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TokenType {
     // Single character tokens.
     LeftParen,
@@ -34,6 +34,7 @@ pub enum TokenType {
     For,
     While,
     Return,
+    Print,
     And,
     Or,
     True,
@@ -49,7 +50,7 @@ pub enum TokenType {
     Eof,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum LiteralValue<'a> {
     Nil,
     Bool(bool),

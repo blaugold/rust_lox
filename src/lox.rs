@@ -6,14 +6,15 @@ use std::{
 };
 
 use crate::{
-    ast::{Expr, LiteralExpr, PrintStmt, Stmt},
-    interpreter::Interpreter,
+    interpreter::{Interpreter, RuntimeError},
+    parser::Parser,
     scanner::Scanner,
-    token::LiteralValue,
+    token::{Token, TokenType},
 };
 
 pub struct Lox {
     had_error: bool,
+    had_runtime_error: bool,
     interpreter: Interpreter,
 }
 
@@ -21,6 +22,7 @@ impl Lox {
     pub fn new() -> Lox {
         Lox {
             had_error: false,
+            had_runtime_error: false,
             interpreter: Interpreter::new(),
         }
     }
@@ -49,6 +51,7 @@ impl Lox {
                 Some(line) => {
                     self.run(&line.unwrap());
                     self.had_error = false;
+                    self.had_runtime_error = false;
                 }
                 None => {
                     return;
@@ -68,56 +71,44 @@ impl Lox {
         if self.had_error {
             exit(1);
         }
+        if self.had_runtime_error {
+            exit(1);
+        }
     }
 
     fn run(&mut self, source: &str) {
         let scanner = Scanner::new(self, source);
-        let (tokens, _lox) = scanner.scan_tokens();
+        let (tokens, lox) = scanner.scan_tokens();
+        let parser = Parser::new(lox, &tokens);
+        let (statements, lox) = parser.parse();
 
-        println!("Tokens: {:#?}", tokens);
-
-        let statements = vec![
-            Stmt::Print(Box::new(PrintStmt {
-                expression: Expr::Literal(Box::new(LiteralExpr {
-                    value: LiteralValue::Nil,
-                })),
-            })),
-            Stmt::Print(Box::new(PrintStmt {
-                expression: Expr::Literal(Box::new(LiteralExpr {
-                    value: LiteralValue::Bool(true),
-                })),
-            })),
-            Stmt::Print(Box::new(PrintStmt {
-                expression: Expr::Literal(Box::new(LiteralExpr {
-                    value: LiteralValue::Number(0.0),
-                })),
-            })),
-            Stmt::Print(Box::new(PrintStmt {
-                expression: Expr::Literal(Box::new(LiteralExpr {
-                    value: LiteralValue::Number(0.1),
-                })),
-            })),
-            Stmt::Print(Box::new(PrintStmt {
-                expression: Expr::Literal(Box::new(LiteralExpr {
-                    value: LiteralValue::String("Hello, World!"),
-                })),
-            })),
-            Stmt::Print(Box::new(PrintStmt {
-                expression: Expr::Literal(Box::new(LiteralExpr {
-                    value: LiteralValue::String("How are you?"),
-                })),
-            })),
-        ];
-
-        self.interpreter.interpret(&statements).unwrap();
+        if !lox.had_error {
+            match lox.interpreter.interpret(&statements) {
+                Err(err) => lox.runtime_error(err),
+                Ok(_) => {}
+            }
+        }
     }
 
     pub fn scanner_error(&mut self, line: usize, message: &str) {
-        Lox::report(line, "", message);
-        self.had_error = true;
+        self.report_static_error(line, "", message);
     }
 
-    fn report(line: usize, at: &str, message: &str) {
-        println!("[line {}] Error{}: {}", line, at, message)
+    pub fn parser_error(&mut self, token: &Token<'_>, message: &str) {
+        if token.token_type == TokenType::Eof {
+            self.report_static_error(token.line, " at end", message);
+        } else {
+            self.report_static_error(token.line, &format!(" at '{}'", token.lexeme), message);
+        }
+    }
+
+    pub fn runtime_error(&mut self, err: RuntimeError) {
+        println!("{} [line {}]", err.message, err.token.line);
+        self.had_runtime_error = true;
+    }
+
+    fn report_static_error(&mut self, line: usize, at: &str, message: &str) {
+        println!("[line {}] Error{}: {}", line, at, message);
+        self.had_error = true;
     }
 }

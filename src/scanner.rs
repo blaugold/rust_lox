@@ -216,6 +216,7 @@ fn resolve_keyword_type(lexeme: &str) -> Option<TokenType> {
         "for" => Some(TokenType::For),
         "while" => Some(TokenType::While),
         "return" => Some(TokenType::Return),
+        "print" => Some(TokenType::Print),
         "and" => Some(TokenType::And),
         "or" => Some(TokenType::Or),
         "true" => Some(TokenType::True),
