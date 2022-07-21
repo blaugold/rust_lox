@@ -1,0 +1,8 @@
+if (true) {
+    print "then";
+}
+
+if (false) {}
+else {
+    print "else";
+}

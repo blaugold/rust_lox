@@ -2,7 +2,7 @@ use std::{error::Error, fmt};
 
 use crate::{
     ast::{
-        AssignExpr, BinaryExpr, BlockStmt, Expr, ExpressionStmt, GroupingExpr, LiteralExpr,
+        AssignExpr, BinaryExpr, BlockStmt, Expr, ExpressionStmt, GroupingExpr, IfStmt, LiteralExpr,
         PrintStmt, Stmt, UnaryExpr, VarStmt, VariableExpr,
     },
     lox::Lox,
@@ -96,34 +96,17 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt<'a>, ParserError> {
-        if self.match_token(TokenType::Print) {
-            self.print_stmt()
-        } else if self.match_token(TokenType::LeftBrace) {
+        if self.match_token(TokenType::LeftBrace) {
             Ok(Stmt::Block(Box::new(BlockStmt {
                 statements: self.block()?,
             })))
+        } else if self.match_token(TokenType::Print) {
+            self.print_stmt()
+        } else if self.match_token(TokenType::If) {
+            self.if_stmt()
         } else {
             self.expression_stmt()
         }
-    }
-
-    fn print_stmt(&mut self) -> Result<Stmt<'a>, ParserError> {
-        let expression = self.expression()?;
-
-        self.consume(TokenType::Semicolon, "Expect ';' after print statement.")?;
-
-        Ok(Stmt::Print(Box::new(PrintStmt { expression })))
-    }
-
-    fn expression_stmt(&mut self) -> Result<Stmt<'a>, ParserError> {
-        let expression = self.expression()?;
-
-        self.consume(
-            TokenType::Semicolon,
-            "Expect ';' after expression statement.",
-        )?;
-
-        Ok(Stmt::Expression(Box::new(ExpressionStmt { expression })))
     }
 
     fn block(&mut self) -> Result<Vec<Stmt<'a>>, ParserError> {
@@ -136,6 +119,46 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::RightBrace, "Expect '}' after statement block.")?;
 
         Ok(statements)
+    }
+
+    fn print_stmt(&mut self) -> Result<Stmt<'a>, ParserError> {
+        let expression = self.expression()?;
+
+        self.consume(TokenType::Semicolon, "Expect ';' after print statement.")?;
+
+        Ok(Stmt::Print(Box::new(PrintStmt { expression })))
+    }
+
+    fn if_stmt(&mut self) -> Result<Stmt<'a>, ParserError> {
+        self.consume(TokenType::LeftParen, "Expect '(' before if condition.")?;
+
+        let condition = self.expression()?;
+
+        self.consume(TokenType::RightParen, "Expect ')' before if condition.")?;
+
+        let then_statement = self.statement()?;
+
+        let else_statement = match self.match_token(TokenType::Else) {
+            true => Some(self.statement()?),
+            false => None,
+        };
+
+        Ok(Stmt::If(Box::new(IfStmt {
+            condition,
+            then_statement,
+            else_statement,
+        })))
+    }
+
+    fn expression_stmt(&mut self) -> Result<Stmt<'a>, ParserError> {
+        let expression = self.expression()?;
+
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after expression statement.",
+        )?;
+
+        Ok(Stmt::Expression(Box::new(ExpressionStmt { expression })))
     }
 
     fn expression(&mut self) -> Result<Expr<'a>, ParserError> {

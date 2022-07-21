@@ -5,6 +5,7 @@ pub enum Stmt<'a> {
     Block(Box<BlockStmt<'a>>),
     Var(Box<VarStmt<'a>>),
     Print(Box<PrintStmt<'a>>),
+    If(Box<IfStmt<'a>>),
 }
 
 pub trait StmtVisitor<'a, T> {
@@ -12,6 +13,7 @@ pub trait StmtVisitor<'a, T> {
     fn visit_block_stmt(&mut self, stmt: &BlockStmt<'a>) -> T;
     fn visit_var_stmt(&mut self, stmt: &VarStmt<'a>) -> T;
     fn visit_print_stmt(&mut self, stmt: &PrintStmt<'a>) -> T;
+    fn visit_if_stmt(&mut self, stmt: &IfStmt<'a>) -> T;
 }
 
 impl<'a> Stmt<'a> {
@@ -22,6 +24,7 @@ impl<'a> Stmt<'a> {
             Var(expr) => visitor.visit_var_stmt(expr),
             Block(expr) => visitor.visit_block_stmt(expr),
             Print(expr) => visitor.visit_print_stmt(expr),
+            If(expr) => visitor.visit_if_stmt(expr),
         }
     }
 }
@@ -41,6 +44,12 @@ pub struct VarStmt<'a> {
 
 pub struct PrintStmt<'a> {
     pub expression: Expr<'a>,
+}
+
+pub struct IfStmt<'a> {
+    pub condition: Expr<'a>,
+    pub then_statement: Stmt<'a>,
+    pub else_statement: Option<Stmt<'a>>,
 }
 
 pub enum Expr<'a> {

@@ -2,7 +2,7 @@ use std::{error::Error, fmt, mem, rc::Rc};
 
 use crate::{
     ast::{
-        AssignExpr, BinaryExpr, BlockStmt, Expr, ExprVisitor, ExpressionStmt, GroupingExpr,
+        AssignExpr, BinaryExpr, BlockStmt, Expr, ExprVisitor, ExpressionStmt, GroupingExpr, IfStmt,
         LiteralExpr, PrintStmt, Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr,
     },
     environment::Environment,
@@ -32,6 +32,13 @@ impl Interpreter {
         stmt.accept(self)
     }
 
+    fn execute_optional<'a>(&mut self, stmt: &Option<Stmt<'a>>) -> Result<(), RuntimeError<'a>> {
+        match &stmt {
+            Some(stmt) => self.execute(stmt),
+            None => Ok(()),
+        }
+    }
+
     fn execute_block<'a>(&mut self, statements: &Vec<Stmt<'a>>) -> Result<(), RuntimeError<'a>> {
         let environment = Box::new(Environment::new());
         let enclosing = mem::replace(&mut self.environment, environment);
@@ -57,6 +64,16 @@ impl Interpreter {
     fn evaluate<'a>(&mut self, expr: &Expr<'a>) -> Result<Rc<RuntimeValue>, RuntimeError<'a>> {
         expr.accept(self)
     }
+
+    fn evaluate_optional<'a>(
+        &mut self,
+        expr: &Option<Expr<'a>>,
+    ) -> Result<Rc<RuntimeValue>, RuntimeError<'a>> {
+        match expr {
+            None => Ok(Rc::new(RuntimeValue::Nil)),
+            Some(expr) => self.evaluate(expr),
+        }
+    }
 }
 
 impl<'a> StmtVisitor<'a, Result<(), RuntimeError<'a>>> for Interpreter {
@@ -69,10 +86,7 @@ impl<'a> StmtVisitor<'a, Result<(), RuntimeError<'a>>> for Interpreter {
     }
 
     fn visit_var_stmt(&mut self, stmt: &VarStmt<'a>) -> Result<(), RuntimeError<'a>> {
-        let value = match &stmt.initializer {
-            None => Rc::new(RuntimeValue::Nil),
-            Some(initializer) => self.evaluate(initializer)?,
-        };
+        let value = self.evaluate_optional(&stmt.initializer)?;
         self.environment.define(stmt.name.lexeme, value)
     }
 
@@ -80,6 +94,14 @@ impl<'a> StmtVisitor<'a, Result<(), RuntimeError<'a>>> for Interpreter {
         let value = self.evaluate(&stmt.expression)?;
         println!("{}", value);
         Ok(())
+    }
+
+    fn visit_if_stmt(&mut self, stmt: &IfStmt<'a>) -> Result<(), RuntimeError<'a>> {
+        if self.evaluate(&stmt.condition)?.is_truthy() {
+            self.execute(&stmt.then_statement)
+        } else {
+            self.execute_optional(&stmt.else_statement)
+        }
     }
 }
 
