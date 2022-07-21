@@ -106,6 +106,8 @@ impl<'a> Parser<'a> {
             self.if_stmt()
         } else if self.match_token(TokenType::While) {
             self.while_stmt()
+        } else if self.match_token(TokenType::For) {
+            self.for_stmt()
         } else {
             self.expression_stmt()
         }
@@ -162,6 +164,57 @@ impl<'a> Parser<'a> {
         let body = self.statement()?;
 
         Ok(Stmt::While(Box::new(WhileStmt { condition, body })))
+    }
+
+    fn for_stmt(&mut self) -> Result<Stmt<'a>, ParserError> {
+        self.consume(TokenType::LeftParen, "Expect '(' before for initializer.")?;
+
+        let initializer = if self.match_token(TokenType::Semicolon) {
+            None
+        } else if self.match_token(TokenType::Var) {
+            Some(self.var_declaration()?)
+        } else {
+            Some(self.expression_stmt()?)
+        };
+
+        let condition = if self.match_token(TokenType::Semicolon) {
+            Expr::Literal(Box::new(LiteralExpr {
+                value: LiteralValue::Bool(true),
+            }))
+        } else {
+            let expr = self.expression()?;
+            self.consume(TokenType::Semicolon, "Expect ';' after for condition.")?;
+            expr
+        };
+
+        let increment = if self.match_token(TokenType::RightParen) {
+            None
+        } else {
+            let expr = Some(self.expression()?);
+            self.consume(TokenType::RightParen, "Expect ')' after for increment.")?;
+            expr
+        };
+
+        let mut body = self.statement()?;
+
+        if let Some(expression) = increment {
+            body = Stmt::Block(Box::new(BlockStmt {
+                statements: vec![
+                    body,
+                    Stmt::Expression(Box::new(ExpressionStmt { expression })),
+                ],
+            }))
+        };
+
+        body = Stmt::While(Box::new(WhileStmt { condition, body }));
+
+        if let Some(statement) = initializer {
+            body = Stmt::Block(Box::new(BlockStmt {
+                statements: vec![statement, body],
+            }))
+        }
+
+        Ok(body)
     }
 
     fn expression_stmt(&mut self) -> Result<Stmt<'a>, ParserError> {
