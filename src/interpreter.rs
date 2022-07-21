@@ -3,7 +3,7 @@ use std::{error::Error, fmt, mem, rc::Rc};
 use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, Expr, ExprVisitor, ExpressionStmt, GroupingExpr, IfStmt,
-        LiteralExpr, PrintStmt, Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr,
+        LiteralExpr, PrintStmt, Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     environment::Environment,
     token::{LiteralValue, Token, TokenType},
@@ -102,6 +102,13 @@ impl<'a> StmtVisitor<'a, Result<(), RuntimeError<'a>>> for Interpreter {
         } else {
             self.execute_optional(&stmt.else_statement)
         }
+    }
+
+    fn visit_while_stmt(&mut self, stmt: &WhileStmt<'a>) -> Result<(), RuntimeError<'a>> {
+        while self.evaluate(&stmt.condition)?.is_truthy() {
+            self.execute(&stmt.body)?;
+        }
+        Ok(())
     }
 }
 

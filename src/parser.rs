@@ -3,7 +3,7 @@ use std::{error::Error, fmt};
 use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, Expr, ExpressionStmt, GroupingExpr, IfStmt, LiteralExpr,
-        PrintStmt, Stmt, UnaryExpr, VarStmt, VariableExpr,
+        PrintStmt, Stmt, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     lox::Lox,
     token::{LiteralValue, Token, TokenType},
@@ -104,6 +104,8 @@ impl<'a> Parser<'a> {
             self.print_stmt()
         } else if self.match_token(TokenType::If) {
             self.if_stmt()
+        } else if self.match_token(TokenType::While) {
+            self.while_stmt()
         } else {
             self.expression_stmt()
         }
@@ -148,6 +150,18 @@ impl<'a> Parser<'a> {
             then_statement,
             else_statement,
         })))
+    }
+
+    fn while_stmt(&mut self) -> Result<Stmt<'a>, ParserError> {
+        self.consume(TokenType::LeftParen, "Expect '(' before while condition.")?;
+
+        let condition = self.expression()?;
+
+        self.consume(TokenType::RightParen, "Expect ')' before while condition.")?;
+
+        let body = self.statement()?;
+
+        Ok(Stmt::While(Box::new(WhileStmt { condition, body })))
     }
 
     fn expression_stmt(&mut self) -> Result<Stmt<'a>, ParserError> {
