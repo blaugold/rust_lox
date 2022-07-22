@@ -10,7 +10,7 @@ pub struct Scanner<'a> {
     line: usize,
     start: usize,
     current: usize,
-    tokens: Vec<Token<'a>>,
+    tokens: Vec<Token>,
 }
 
 impl<'a> Scanner<'a> {
@@ -26,7 +26,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    pub fn scan_tokens(mut self) -> (Vec<Token<'a>>, &'a mut Lox) {
+    pub fn scan_tokens(mut self) -> (Vec<Token>, &'a mut Lox) {
         while !self.is_at_end() {
             self.scan_token();
             self.start = self.current;
@@ -123,7 +123,7 @@ impl<'a> Scanner<'a> {
         }
 
         let lexeme = self.lexeme();
-        let value = &lexeme[1..(lexeme.len() - 1)];
+        let value = lexeme[1..(lexeme.len() - 1)].to_string();
         self.add_full_token(TokenType::String, Some(LiteralValue::String(value)));
     }
 
@@ -178,12 +178,12 @@ impl<'a> Scanner<'a> {
         self.add_full_token(token_type, Option::None)
     }
 
-    fn add_full_token(&mut self, token_type: TokenType, literal: Option<LiteralValue<'a>>) {
+    fn add_full_token(&mut self, token_type: TokenType, literal: Option<LiteralValue>) {
         self.tokens.push(Token {
             token_type: token_type,
             line: self.line,
             literal,
-            lexeme: self.lexeme(),
+            lexeme: self.lexeme().to_string(),
         })
     }
 

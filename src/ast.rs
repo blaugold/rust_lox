@@ -1,30 +1,35 @@
+use std::rc::Rc;
+
 use crate::token::{LiteralValue, Token};
 
-pub enum Stmt<'a> {
-    Expression(Box<ExpressionStmt<'a>>),
-    Block(Box<BlockStmt<'a>>),
-    Var(Box<VarStmt<'a>>),
-    Print(Box<PrintStmt<'a>>),
-    If(Box<IfStmt<'a>>),
-    While(Box<WhileStmt<'a>>),
+pub enum Stmt {
+    Expression(Box<ExpressionStmt>),
+    Block(Box<BlockStmt>),
+    Var(Box<VarStmt>),
+    Function(Rc<FunctionStmt>),
+    Print(Box<PrintStmt>),
+    If(Box<IfStmt>),
+    While(Box<WhileStmt>),
 }
 
-pub trait StmtVisitor<'a, T> {
-    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt<'a>) -> T;
-    fn visit_block_stmt(&mut self, stmt: &BlockStmt<'a>) -> T;
-    fn visit_var_stmt(&mut self, stmt: &VarStmt<'a>) -> T;
-    fn visit_print_stmt(&mut self, stmt: &PrintStmt<'a>) -> T;
-    fn visit_if_stmt(&mut self, stmt: &IfStmt<'a>) -> T;
-    fn visit_while_stmt(&mut self, stmt: &WhileStmt<'a>) -> T;
+pub trait StmtVisitor<T> {
+    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt) -> T;
+    fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> T;
+    fn visit_var_stmt(&mut self, stmt: &VarStmt) -> T;
+    fn visit_function_stmt(&mut self, stmt: &Rc<FunctionStmt>) -> T;
+    fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> T;
+    fn visit_if_stmt(&mut self, stmt: &IfStmt) -> T;
+    fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> T;
 }
 
-impl<'a> Stmt<'a> {
-    pub fn accept<T, V: StmtVisitor<'a, T>>(&self, visitor: &mut V) -> T {
+impl Stmt {
+    pub fn accept<T, V: StmtVisitor<T>>(&self, visitor: &mut V) -> T {
         use Stmt::*;
         match self {
             Expression(expr) => visitor.visit_expression_stmt(expr),
-            Var(expr) => visitor.visit_var_stmt(expr),
             Block(expr) => visitor.visit_block_stmt(expr),
+            Var(expr) => visitor.visit_var_stmt(expr),
+            Function(expr) => visitor.visit_function_stmt(expr),
             Print(expr) => visitor.visit_print_stmt(expr),
             If(expr) => visitor.visit_if_stmt(expr),
             While(expr) => visitor.visit_while_stmt(expr),
@@ -32,54 +37,62 @@ impl<'a> Stmt<'a> {
     }
 }
 
-pub struct ExpressionStmt<'a> {
-    pub expression: Expr<'a>,
+pub struct ExpressionStmt {
+    pub expression: Expr,
 }
 
-pub struct BlockStmt<'a> {
-    pub statements: Vec<Stmt<'a>>,
+pub struct BlockStmt {
+    pub statements: Vec<Stmt>,
 }
 
-pub struct VarStmt<'a> {
-    pub name: &'a Token<'a>,
-    pub initializer: Option<Expr<'a>>,
+pub struct VarStmt {
+    pub name: Token,
+    pub initializer: Option<Expr>,
 }
 
-pub struct PrintStmt<'a> {
-    pub expression: Expr<'a>,
+pub struct FunctionStmt {
+    pub name: Token,
+    pub parameters: Vec<Token>,
+    pub body: Vec<Stmt>,
 }
 
-pub struct IfStmt<'a> {
-    pub condition: Expr<'a>,
-    pub then_statement: Stmt<'a>,
-    pub else_statement: Option<Stmt<'a>>,
+pub struct PrintStmt {
+    pub expression: Expr,
 }
 
-pub struct WhileStmt<'a> {
-    pub condition: Expr<'a>,
-    pub body: Stmt<'a>,
+pub struct IfStmt {
+    pub condition: Expr,
+    pub then_statement: Stmt,
+    pub else_statement: Option<Stmt>,
 }
 
-pub enum Expr<'a> {
-    Literal(Box<LiteralExpr<'a>>),
-    Variable(Box<VariableExpr<'a>>),
-    Assign(Box<AssignExpr<'a>>),
-    Unary(Box<UnaryExpr<'a>>),
-    Binary(Box<BinaryExpr<'a>>),
-    Grouping(Box<GroupingExpr<'a>>),
+pub struct WhileStmt {
+    pub condition: Expr,
+    pub body: Stmt,
 }
 
-pub trait ExprVisitor<'a, T> {
-    fn visit_literal_expr(&mut self, expr: &LiteralExpr<'a>) -> T;
-    fn visit_variable_expr(&mut self, expr: &VariableExpr<'a>) -> T;
-    fn visit_assign_expr(&mut self, expr: &AssignExpr<'a>) -> T;
-    fn visit_unary_expr(&mut self, expr: &UnaryExpr<'a>) -> T;
-    fn visit_binary_expr(&mut self, expr: &BinaryExpr<'a>) -> T;
-    fn visit_grouping_expr(&mut self, expr: &GroupingExpr<'a>) -> T;
+pub enum Expr {
+    Literal(Box<LiteralExpr>),
+    Variable(Box<VariableExpr>),
+    Assign(Box<AssignExpr>),
+    Unary(Box<UnaryExpr>),
+    Binary(Box<BinaryExpr>),
+    Grouping(Box<GroupingExpr>),
+    Call(Box<CallExpr>),
 }
 
-impl<'a> Expr<'a> {
-    pub fn accept<T, V: ExprVisitor<'a, T>>(&self, visitor: &mut V) -> T {
+pub trait ExprVisitor<T> {
+    fn visit_literal_expr(&mut self, expr: &LiteralExpr) -> T;
+    fn visit_variable_expr(&mut self, expr: &VariableExpr) -> T;
+    fn visit_assign_expr(&mut self, expr: &AssignExpr) -> T;
+    fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> T;
+    fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> T;
+    fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> T;
+    fn visit_call_expr(&mut self, expr: &CallExpr) -> T;
+}
+
+impl Expr {
+    pub fn accept<T, V: ExprVisitor<T>>(&self, visitor: &mut V) -> T {
         use Expr::*;
         match self {
             Literal(expr) => visitor.visit_literal_expr(expr),
@@ -88,34 +101,41 @@ impl<'a> Expr<'a> {
             Unary(expr) => visitor.visit_unary_expr(expr),
             Binary(expr) => visitor.visit_binary_expr(expr),
             Grouping(expr) => visitor.visit_grouping_expr(expr),
+            Call(expr) => visitor.visit_call_expr(expr),
         }
     }
 }
 
-pub struct LiteralExpr<'a> {
-    pub value: LiteralValue<'a>,
+pub struct LiteralExpr {
+    pub value: LiteralValue,
 }
 
-pub struct VariableExpr<'a> {
-    pub name: &'a Token<'a>,
+pub struct VariableExpr {
+    pub name: Token,
 }
 
-pub struct AssignExpr<'a> {
-    pub name: &'a Token<'a>,
-    pub value: Expr<'a>,
+pub struct AssignExpr {
+    pub name: Token,
+    pub value: Expr,
 }
 
-pub struct UnaryExpr<'a> {
-    pub operator: &'a Token<'a>,
-    pub expression: Expr<'a>,
+pub struct UnaryExpr {
+    pub operator: Token,
+    pub expression: Expr,
 }
 
-pub struct BinaryExpr<'a> {
-    pub left: Expr<'a>,
-    pub operator: &'a Token<'a>,
-    pub right: Expr<'a>,
+pub struct BinaryExpr {
+    pub left: Expr,
+    pub operator: Token,
+    pub right: Expr,
 }
 
-pub struct GroupingExpr<'a> {
-    pub expression: Expr<'a>,
+pub struct GroupingExpr {
+    pub expression: Expr,
+}
+
+pub struct CallExpr {
+    pub callee: Expr,
+    pub paren: Token,
+    pub arguments: Vec<Expr>,
 }

@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Single character tokens.
     LeftParen,
@@ -50,18 +50,18 @@ pub enum TokenType {
     Eof,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum LiteralValue<'a> {
+#[derive(Debug, Clone)]
+pub enum LiteralValue {
     Nil,
     Bool(bool),
     Number(f64),
-    String(&'a str),
+    String(String),
 }
 
-#[derive(Debug)]
-pub struct Token<'a> {
+#[derive(Debug, Clone)]
+pub struct Token {
     pub token_type: TokenType,
-    pub lexeme: &'a str,
+    pub lexeme: String,
     pub line: usize,
-    pub literal: Option<LiteralValue<'a>>,
+    pub literal: Option<LiteralValue>,
 }

@@ -79,7 +79,7 @@ impl Lox {
     fn run(&mut self, source: &str) {
         let scanner = Scanner::new(self, source);
         let (tokens, lox) = scanner.scan_tokens();
-        let parser = Parser::new(lox, &tokens);
+        let parser = Parser::new(lox, tokens);
         let (statements, lox) = parser.parse();
 
         if !lox.had_error {
@@ -94,7 +94,7 @@ impl Lox {
         self.report_static_error(line, "", message);
     }
 
-    pub fn parser_error(&mut self, token: &Token<'_>, message: &str) {
+    pub fn parser_error(&mut self, token: &Token, message: &str) {
         if token.token_type == TokenType::Eof {
             self.report_static_error(token.line, " at end", message);
         } else {
