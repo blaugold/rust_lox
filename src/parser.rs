@@ -3,8 +3,8 @@ use std::{error::Error, fmt, rc::Rc};
 use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, ExpressionStmt, FunctionStmt,
-        GroupingExpr, IfStmt, LiteralExpr, PrintStmt, Stmt, UnaryExpr, VarStmt, VariableExpr,
-        WhileStmt,
+        GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt, Stmt, UnaryExpr, VarStmt,
+        VariableExpr, WhileStmt,
     },
     lox::Lox,
     token::{LiteralValue, Token, TokenType},
@@ -145,6 +145,8 @@ impl<'a> Parser<'a> {
             self.while_stmt()
         } else if self.match_token(TokenType::For) {
             self.for_stmt()
+        } else if self.match_token(TokenType::Return) {
+            self.return_stmt()
         } else {
             self.expression_stmt()
         }
@@ -252,6 +254,20 @@ impl<'a> Parser<'a> {
         }
 
         Ok(body)
+    }
+
+    fn return_stmt(&mut self) -> Result<Stmt, ParserError> {
+        let token = self.previous();
+
+        let value = if self.match_token(TokenType::Semicolon) {
+            None
+        } else {
+            let expression = self.expression()?;
+            self.consume(TokenType::Semicolon, "Expect ';' after return value.")?;
+            Some(expression)
+        };
+
+        Ok(Stmt::Return(Box::new(ReturnStmt { token, value })))
     }
 
     fn expression_stmt(&mut self) -> Result<Stmt, ParserError> {

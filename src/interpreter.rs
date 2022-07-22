@@ -1,6 +1,7 @@
 use std::{
     error::Error,
-    fmt, mem,
+    fmt::{self},
+    mem,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -8,8 +9,8 @@ use std::{
 use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, ExprVisitor, ExpressionStmt,
-        FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, Stmt, StmtVisitor, UnaryExpr,
-        VarStmt, VariableExpr, WhileStmt,
+        FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt, Stmt, StmtVisitor,
+        UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     environment::Environment,
     token::{LiteralValue, Token, TokenType},
@@ -31,17 +32,27 @@ impl Interpreter {
 
     pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<(), RuntimeError> {
         for statement in statements {
-            self.execute(statement)?;
+            if let Err(early_return) = self.execute(statement) {
+                match early_return {
+                    EarlyReturn::Return(_) => {
+                        // We discard the value of the return statement at the top level.
+                        return Ok(());
+                    }
+                    EarlyReturn::Error(error) => {
+                        return Err(error);
+                    }
+                }
+            }
         }
 
         Ok(())
     }
 
-    fn execute(&mut self, stmt: &Stmt) -> Result<(), RuntimeError> {
+    fn execute(&mut self, stmt: &Stmt) -> Result<(), EarlyReturn> {
         stmt.accept(self)
     }
 
-    fn execute_optional(&mut self, stmt: &Option<Stmt>) -> Result<(), RuntimeError> {
+    fn execute_optional(&mut self, stmt: &Option<Stmt>) -> Result<(), EarlyReturn> {
         match &stmt {
             Some(stmt) => self.execute(stmt),
             None => Ok(()),
@@ -52,11 +63,11 @@ impl Interpreter {
         &mut self,
         statements: &Vec<Stmt>,
         environment: Box<Environment>,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<(), EarlyReturn> {
         let enclosing = mem::replace(&mut self.environment, environment);
         self.environment.set_enclosing(enclosing);
 
-        let mut result: Result<(), RuntimeError> = Ok(());
+        let mut result: Result<(), EarlyReturn> = Ok(());
 
         for statement in statements {
             match self.execute(statement) {
@@ -73,11 +84,11 @@ impl Interpreter {
         result
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<RuntimeValue, RuntimeError> {
+    fn evaluate(&mut self, expr: &Expr) -> Result<RuntimeValue, EarlyReturn> {
         expr.accept(self)
     }
 
-    fn evaluate_optional(&mut self, expr: &Option<Expr>) -> Result<RuntimeValue, RuntimeError> {
+    fn evaluate_optional(&mut self, expr: &Option<Expr>) -> Result<RuntimeValue, EarlyReturn> {
         match expr {
             None => Ok(RuntimeValue::Nil),
             Some(expr) => self.evaluate(expr),
@@ -85,35 +96,35 @@ impl Interpreter {
     }
 }
 
-impl StmtVisitor<Result<(), RuntimeError>> for Interpreter {
-    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt) -> Result<(), RuntimeError> {
+impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
+    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt) -> Result<(), EarlyReturn> {
         self.evaluate(&stmt.expression).map(|_| ())
     }
 
-    fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> Result<(), RuntimeError> {
+    fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> Result<(), EarlyReturn> {
         let environment = Box::new(Environment::new());
         self.execute_block(&stmt.statements, environment)
     }
 
-    fn visit_var_stmt(&mut self, stmt: &VarStmt) -> Result<(), RuntimeError> {
+    fn visit_var_stmt(&mut self, stmt: &VarStmt) -> Result<(), EarlyReturn> {
         let value = self.evaluate_optional(&stmt.initializer)?;
         self.environment.define(&stmt.name.lexeme, value)
     }
 
-    fn visit_function_stmt(&mut self, stmt: &Rc<FunctionStmt>) -> Result<(), RuntimeError> {
+    fn visit_function_stmt(&mut self, stmt: &Rc<FunctionStmt>) -> Result<(), EarlyReturn> {
         let function = RuntimeValue::DeclaredFunction(Rc::new(DeclaredFunction {
             declaration: stmt.clone(),
         }));
         self.environment.define(&stmt.name.lexeme, function)
     }
 
-    fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> Result<(), RuntimeError> {
+    fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> Result<(), EarlyReturn> {
         let value = self.evaluate(&stmt.expression)?;
         println!("{}", value);
         Ok(())
     }
 
-    fn visit_if_stmt(&mut self, stmt: &IfStmt) -> Result<(), RuntimeError> {
+    fn visit_if_stmt(&mut self, stmt: &IfStmt) -> Result<(), EarlyReturn> {
         if self.evaluate(&stmt.condition)?.is_truthy() {
             self.execute(&stmt.then_statement)
         } else {
@@ -121,16 +132,20 @@ impl StmtVisitor<Result<(), RuntimeError>> for Interpreter {
         }
     }
 
-    fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> Result<(), RuntimeError> {
+    fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> Result<(), EarlyReturn> {
         while self.evaluate(&stmt.condition)?.is_truthy() {
             self.execute(&stmt.body)?;
         }
         Ok(())
     }
+
+    fn visit_return_stmt(&mut self, stmt: &ReturnStmt) -> Result<(), EarlyReturn> {
+        self.evaluate_optional(&stmt.value)?.into()
+    }
 }
 
-impl ExprVisitor<Result<RuntimeValue, RuntimeError>> for Interpreter {
-    fn visit_literal_expr(&mut self, expr: &LiteralExpr) -> Result<RuntimeValue, RuntimeError> {
+impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
+    fn visit_literal_expr(&mut self, expr: &LiteralExpr) -> Result<RuntimeValue, EarlyReturn> {
         use LiteralValue::*;
         Ok(match &expr.value {
             Nil => RuntimeValue::Nil,
@@ -140,18 +155,18 @@ impl ExprVisitor<Result<RuntimeValue, RuntimeError>> for Interpreter {
         })
     }
 
-    fn visit_variable_expr(&mut self, expr: &VariableExpr) -> Result<RuntimeValue, RuntimeError> {
+    fn visit_variable_expr(&mut self, expr: &VariableExpr) -> Result<RuntimeValue, EarlyReturn> {
         self.environment.get(&expr.name)
     }
 
-    fn visit_assign_expr(&mut self, expr: &AssignExpr) -> Result<RuntimeValue, RuntimeError> {
+    fn visit_assign_expr(&mut self, expr: &AssignExpr) -> Result<RuntimeValue, EarlyReturn> {
         let value = self.evaluate(&expr.value)?;
         let result = value.clone();
         self.environment.assign(&expr.name, value)?;
         Ok(result)
     }
 
-    fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> Result<RuntimeValue, RuntimeError> {
+    fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> Result<RuntimeValue, EarlyReturn> {
         let operand = self.evaluate(&expr.expression)?;
         Ok(match expr.operator.token_type {
             TokenType::Bang => RuntimeValue::Bool(!operand.is_truthy()),
@@ -163,7 +178,7 @@ impl ExprVisitor<Result<RuntimeValue, RuntimeError>> for Interpreter {
         })
     }
 
-    fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> Result<RuntimeValue, RuntimeError> {
+    fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> Result<RuntimeValue, EarlyReturn> {
         let left = self.evaluate(&expr.left)?;
         let right = self.evaluate(&expr.right)?;
 
@@ -186,18 +201,19 @@ impl ExprVisitor<Result<RuntimeValue, RuntimeError>> for Interpreter {
                 match result {
                     Some(result) => result,
                     None => {
-                        return Err(RuntimeError {
+                        return RuntimeError {
                             message: format!(
                                 "Operands must either both be numbers or both be strings."
                             ),
                             token: expr.operator.clone(),
-                        })
+                        }
+                        .into();
                     }
                 }
             }
             TokenType::Minus => {
                 let (left, right) = check_numeric_operands(&expr.operator, &left, &right)?;
-                RuntimeValue::Number(left + right)
+                RuntimeValue::Number(left - right)
             }
             TokenType::Slash => {
                 let (left, right) = check_numeric_operands(&expr.operator, &left, &right)?;
@@ -229,33 +245,35 @@ impl ExprVisitor<Result<RuntimeValue, RuntimeError>> for Interpreter {
         })
     }
 
-    fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> Result<RuntimeValue, RuntimeError> {
+    fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> Result<RuntimeValue, EarlyReturn> {
         self.evaluate(&expr.expression)
     }
 
-    fn visit_call_expr(&mut self, expr: &CallExpr) -> Result<RuntimeValue, RuntimeError> {
+    fn visit_call_expr(&mut self, expr: &CallExpr) -> Result<RuntimeValue, EarlyReturn> {
         let callee = self.evaluate(&expr.callee)?;
 
         let callable: &dyn LoxCallable = match &callee {
             RuntimeValue::BuiltinFunction(function) => &**function,
             RuntimeValue::DeclaredFunction(function) => &**function,
             _ => {
-                return Err(RuntimeError {
+                return RuntimeError {
                     message: "Can only call functions and classes.".to_string(),
                     token: expr.paren.clone(),
-                })
+                }
+                .into();
             }
         };
 
         if expr.arguments.len() != callable.arity() as usize {
-            return Err(RuntimeError {
+            return RuntimeError {
                 message: format!(
                     "Expected {} arguments but got {}.",
                     callable.arity(),
                     expr.arguments.len()
                 ),
                 token: expr.paren.clone(),
-            });
+            }
+            .into();
         };
 
         let mut arguments = vec![];
@@ -267,19 +285,50 @@ impl ExprVisitor<Result<RuntimeValue, RuntimeError>> for Interpreter {
     }
 }
 
+pub enum EarlyReturn {
+    Return(RuntimeValue),
+    Error(RuntimeError),
+}
+
+impl Error for EarlyReturn {}
+
+impl fmt::Debug for EarlyReturn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "EarlyReturn")
+    }
+}
+
+impl fmt::Display for EarlyReturn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "EarlyReturn")
+    }
+}
+
+impl<T> Into<Result<T, EarlyReturn>> for RuntimeValue {
+    fn into(self) -> Result<T, EarlyReturn> {
+        Err(EarlyReturn::Return(self))
+    }
+}
+
+impl<T> Into<Result<T, EarlyReturn>> for RuntimeError {
+    fn into(self) -> Result<T, EarlyReturn> {
+        Err(EarlyReturn::Error(self))
+    }
+}
+
 #[derive(Debug)]
 pub struct RuntimeError {
     pub message: String,
     pub token: Token,
 }
 
+impl Error for RuntimeError {}
+
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.message)
     }
 }
-
-impl Error for RuntimeError {}
 
 #[derive(PartialEq, Clone)]
 pub enum RuntimeValue {
@@ -318,32 +367,34 @@ impl fmt::Display for RuntimeValue {
     }
 }
 
-fn check_numeric_operand(operator: &Token, operand: &RuntimeValue) -> Result<f64, RuntimeError> {
+fn check_numeric_operand(operator: &Token, operand: &RuntimeValue) -> Result<f64, EarlyReturn> {
     if let RuntimeValue::Number(value) = *operand {
         return Ok(value);
     }
 
-    Err(RuntimeError {
+    RuntimeError {
         message: format!("Operand must be a number."),
         token: operator.clone(),
-    })
+    }
+    .into()
 }
 
 fn check_numeric_operands(
     operator: &Token,
     left_operand: &RuntimeValue,
     right_operand: &RuntimeValue,
-) -> Result<(f64, f64), RuntimeError> {
+) -> Result<(f64, f64), EarlyReturn> {
     if let RuntimeValue::Number(left_value) = *left_operand {
         if let RuntimeValue::Number(right_value) = *right_operand {
             return Ok((left_value, right_value));
         }
     }
 
-    Err(RuntimeError {
+    RuntimeError {
         message: format!("Operands must both be numbers."),
         token: operator.clone(),
-    })
+    }
+    .into()
 }
 
 trait LoxCallable: fmt::Display {
@@ -353,7 +404,7 @@ trait LoxCallable: fmt::Display {
         &self,
         interpreter: &mut Interpreter,
         arguments: Vec<RuntimeValue>,
-    ) -> Result<RuntimeValue, RuntimeError>;
+    ) -> Result<RuntimeValue, EarlyReturn>;
 }
 
 pub struct BuiltinFunction {
@@ -371,7 +422,7 @@ impl LoxCallable for BuiltinFunction {
         &self,
         _: &mut Interpreter,
         arguments: Vec<RuntimeValue>,
-    ) -> Result<RuntimeValue, RuntimeError> {
+    ) -> Result<RuntimeValue, EarlyReturn> {
         Ok((self.function)(arguments))
     }
 }
@@ -424,14 +475,19 @@ impl LoxCallable for DeclaredFunction {
         &self,
         interpreter: &mut Interpreter,
         arguments: Vec<RuntimeValue>,
-    ) -> Result<RuntimeValue, RuntimeError> {
+    ) -> Result<RuntimeValue, EarlyReturn> {
         let mut environment = Box::new(Environment::new());
 
         for (parameter, argument) in self.declaration.parameters.iter().zip(arguments) {
             environment.define(&parameter.lexeme, argument)?;
         }
 
-        interpreter.execute_block(&self.declaration.body, environment)?;
+        if let Err(early_return) = interpreter.execute_block(&self.declaration.body, environment) {
+            match early_return {
+                EarlyReturn::Return(value) => return Ok(value),
+                EarlyReturn::Error(error) => return error.into(),
+            }
+        }
 
         Ok(RuntimeValue::Nil)
     }

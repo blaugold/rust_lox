@@ -10,6 +10,7 @@ pub enum Stmt {
     Print(Box<PrintStmt>),
     If(Box<IfStmt>),
     While(Box<WhileStmt>),
+    Return(Box<ReturnStmt>),
 }
 
 pub trait StmtVisitor<T> {
@@ -20,6 +21,7 @@ pub trait StmtVisitor<T> {
     fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> T;
     fn visit_if_stmt(&mut self, stmt: &IfStmt) -> T;
     fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> T;
+    fn visit_return_stmt(&mut self, stmt: &ReturnStmt) -> T;
 }
 
 impl Stmt {
@@ -33,6 +35,7 @@ impl Stmt {
             Print(expr) => visitor.visit_print_stmt(expr),
             If(expr) => visitor.visit_if_stmt(expr),
             While(expr) => visitor.visit_while_stmt(expr),
+            Return(expr) => visitor.visit_return_stmt(expr),
         }
     }
 }
@@ -69,6 +72,11 @@ pub struct IfStmt {
 pub struct WhileStmt {
     pub condition: Expr,
     pub body: Stmt,
+}
+
+pub struct ReturnStmt {
+    pub token: Token,
+    pub value: Option<Expr>,
 }
 
 pub enum Expr {

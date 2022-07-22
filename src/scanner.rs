@@ -50,8 +50,16 @@ impl<'a> Scanner<'a> {
             ';' => self.add_token(TokenType::Semicolon),
             '+' => self.add_token(TokenType::Plus),
             '-' => self.add_token(TokenType::Minus),
-            '/' => self.add_token(TokenType::Slash),
             '*' => self.add_token(TokenType::Star),
+            '/' => {
+                if self.match_char('/') {
+                    while !self.is_at_end() && self.peek() != '\n' {
+                        self.advance();
+                    }
+                } else {
+                    self.add_token(TokenType::Slash)
+                }
+            }
             '!' => {
                 let token_type = match self.match_char('=') {
                     true => TokenType::BangEqual,
