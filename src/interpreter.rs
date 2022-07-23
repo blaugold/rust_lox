@@ -1,8 +1,7 @@
 use std::{
     cell::RefCell,
     error::Error,
-    fmt::{self},
-    mem,
+    fmt, mem,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
