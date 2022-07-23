@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     error::Error,
     fmt::{self},
     mem,
@@ -17,16 +18,16 @@ use crate::{
 };
 
 pub struct Interpreter {
-    environment: Box<Environment>,
+    environment: Rc<RefCell<Environment>>,
 }
 
 impl Interpreter {
     pub fn new() -> Interpreter {
-        let mut globals = Box::new(Environment::new());
+        let mut globals = Environment::new();
         BuiltinFunction::clock().add_to_environment(&mut globals);
 
         Interpreter {
-            environment: globals,
+            environment: Rc::new(RefCell::new(globals)),
         }
     }
 
@@ -62,24 +63,20 @@ impl Interpreter {
     fn execute_block(
         &mut self,
         statements: &Vec<Stmt>,
-        environment: Box<Environment>,
+        environment: &Rc<RefCell<Environment>>,
     ) -> Result<(), EarlyReturn> {
-        let enclosing = mem::replace(&mut self.environment, environment);
-        self.environment.set_enclosing(enclosing);
+        let enclosing = mem::replace(&mut self.environment, environment.clone());
 
         let mut result: Result<(), EarlyReturn> = Ok(());
 
         for statement in statements {
-            match self.execute(statement) {
-                Err(err) => {
-                    result = Err(err);
-                    break;
-                }
-                Ok(_) => {}
+            if let Err(err) = self.execute(statement) {
+                result = Err(err);
+                break;
             }
         }
 
-        self.environment = self.environment.take_enclosing();
+        self.environment = enclosing;
 
         result
     }
@@ -102,20 +99,25 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
     }
 
     fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> Result<(), EarlyReturn> {
-        let environment = Box::new(Environment::new());
-        self.execute_block(&stmt.statements, environment)
+        let environment = Rc::new(RefCell::new(Environment::new_enclosed(&self.environment)));
+        self.execute_block(&stmt.statements, &environment)
     }
 
     fn visit_var_stmt(&mut self, stmt: &VarStmt) -> Result<(), EarlyReturn> {
         let value = self.evaluate_optional(&stmt.initializer)?;
-        self.environment.define(&stmt.name.lexeme, value)
+        self.environment
+            .borrow_mut()
+            .define(&stmt.name.lexeme, value)
     }
 
     fn visit_function_stmt(&mut self, stmt: &Rc<FunctionStmt>) -> Result<(), EarlyReturn> {
         let function = RuntimeValue::DeclaredFunction(Rc::new(DeclaredFunction {
             declaration: stmt.clone(),
+            environment: self.environment.clone(),
         }));
-        self.environment.define(&stmt.name.lexeme, function)
+        self.environment
+            .borrow_mut()
+            .define(&stmt.name.lexeme, function)
     }
 
     fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> Result<(), EarlyReturn> {
@@ -156,13 +158,13 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
     }
 
     fn visit_variable_expr(&mut self, expr: &VariableExpr) -> Result<RuntimeValue, EarlyReturn> {
-        self.environment.get(&expr.name)
+        self.environment.borrow().get(&expr.name)
     }
 
     fn visit_assign_expr(&mut self, expr: &AssignExpr) -> Result<RuntimeValue, EarlyReturn> {
         let value = self.evaluate(&expr.value)?;
         let result = value.clone();
-        self.environment.assign(&expr.name, value)?;
+        self.environment.borrow_mut().assign(&expr.name, value)?;
         Ok(result)
     }
 
@@ -464,6 +466,7 @@ impl BuiltinFunction {
 
 pub struct DeclaredFunction {
     declaration: Rc<FunctionStmt>,
+    environment: Rc<RefCell<Environment>>,
 }
 
 impl LoxCallable for DeclaredFunction {
@@ -476,13 +479,15 @@ impl LoxCallable for DeclaredFunction {
         interpreter: &mut Interpreter,
         arguments: Vec<RuntimeValue>,
     ) -> Result<RuntimeValue, EarlyReturn> {
-        let mut environment = Box::new(Environment::new());
+        let mut environment = Environment::new_enclosed(&self.environment);
 
         for (parameter, argument) in self.declaration.parameters.iter().zip(arguments) {
             environment.define(&parameter.lexeme, argument)?;
         }
 
-        if let Err(early_return) = interpreter.execute_block(&self.declaration.body, environment) {
+        if let Err(early_return) =
+            interpreter.execute_block(&self.declaration.body, &Rc::new(RefCell::new(environment)))
+        {
             match early_return {
                 EarlyReturn::Return(value) => return Ok(value),
                 EarlyReturn::Error(error) => return error.into(),

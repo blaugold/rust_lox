@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     interpreter::{EarlyReturn, RuntimeError, RuntimeValue},
@@ -6,7 +6,7 @@ use crate::{
 };
 
 pub struct Environment {
-    enclosing: Option<Box<Environment>>,
+    enclosing: Option<Rc<RefCell<Environment>>>,
     values: HashMap<String, RuntimeValue>,
 }
 
@@ -18,12 +18,11 @@ impl Environment {
         }
     }
 
-    pub fn set_enclosing(&mut self, enclosing: Box<Environment>) {
-        self.enclosing = Some(enclosing)
-    }
-
-    pub fn take_enclosing(&mut self) -> Box<Environment> {
-        std::mem::replace(&mut self.enclosing, None).unwrap()
+    pub fn new_enclosed(enclosing: &Rc<RefCell<Environment>>) -> Self {
+        Self {
+            enclosing: Some(enclosing.clone()),
+            values: HashMap::new(),
+        }
     }
 
     pub fn define(&mut self, name: &str, value: RuntimeValue) -> Result<(), EarlyReturn> {
@@ -37,7 +36,7 @@ impl Environment {
             Ok(())
         } else {
             match &mut self.enclosing {
-                Some(enclosing) => enclosing.assign(name, value),
+                Some(enclosing) => enclosing.borrow_mut().assign(name, value),
                 None => RuntimeError {
                     message: format!("Cannot assign to undefined variable '{}'.", name.lexeme),
                     token: name.clone(),
@@ -51,7 +50,7 @@ impl Environment {
         match self.values.get(&name.lexeme) {
             Some(value) => return Ok(value.clone()),
             None => match &self.enclosing {
-                Some(enclosing) => enclosing.get(name),
+                Some(enclosing) => enclosing.borrow().get(name),
                 None => RuntimeError {
                     message: format!("Variable '{}' is not defined.", name.lexeme),
                     token: name.clone(),
