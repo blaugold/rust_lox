@@ -1,4 +1,4 @@
-use std::{error::Error, fmt, rc::Rc};
+use std::{cell::RefCell, error::Error, fmt, rc::Rc};
 
 use crate::{
     ast::{
@@ -6,36 +6,35 @@ use crate::{
         GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt, Stmt, UnaryExpr, VarStmt,
         VariableExpr, WhileStmt,
     },
-    lox::Lox,
+    lox::ErrorCollector,
     token::{LiteralValue, Token, TokenType},
 };
 
-pub struct Parser<'a> {
-    lox: &'a mut Lox,
+pub struct Parser {
+    error_collector: Rc<RefCell<ErrorCollector>>,
     tokens: Vec<Token>,
     current: usize,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(lox: &'a mut Lox, tokens: Vec<Token>) -> Parser<'a> {
+impl Parser {
+    pub fn new(error_collector: Rc<RefCell<ErrorCollector>>, tokens: Vec<Token>) -> Parser {
         Parser {
-            lox,
+            error_collector,
             tokens,
             current: 0,
         }
     }
 
-    pub fn parse(mut self) -> (Vec<Stmt>, &'a mut Lox) {
+    pub fn parse(mut self) -> Vec<Stmt> {
         let mut statements = Vec::new();
 
         while !self.is_at_end() {
-            match self.declaration_with_sync() {
-                Some(statement) => statements.push(statement),
-                None => {}
+            if let Some(statement) = self.declaration_with_sync() {
+                statements.push(statement);
             }
         }
 
-        (statements, self.lox)
+        statements
     }
 
     fn declaration_with_sync(&mut self) -> Option<Stmt> {
@@ -469,7 +468,7 @@ impl<'a> Parser<'a> {
         self.peek().token_type == TokenType::Eof
     }
 
-    fn peek(&'a self) -> &'a Token {
+    fn peek<'a>(&'a self) -> &'a Token {
         &self.tokens[self.current]
     }
 
@@ -501,7 +500,9 @@ impl<'a> Parser<'a> {
     }
 
     fn error<T>(&mut self, token: &Token, message: &str) -> Result<T, ParserError> {
-        self.lox.parser_error(token, message);
+        self.error_collector
+            .borrow_mut()
+            .parser_error(token, message);
         Err(ParserError {})
     }
 }

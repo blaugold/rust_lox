@@ -13,39 +13,40 @@ use crate::{
         UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     environment::Environment,
+    lox::ErrorCollector,
     token::{LiteralValue, Token, TokenType},
 };
 
 pub struct Interpreter {
+    error_collector: Rc<RefCell<ErrorCollector>>,
     environment: Rc<RefCell<Environment>>,
 }
 
 impl Interpreter {
-    pub fn new() -> Interpreter {
+    pub fn new(error_collector: Rc<RefCell<ErrorCollector>>) -> Interpreter {
         let mut globals = Environment::new();
         BuiltinFunction::clock().add_to_environment(&mut globals);
 
         Interpreter {
+            error_collector,
             environment: Rc::new(RefCell::new(globals)),
         }
     }
 
-    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<(), RuntimeError> {
+    pub fn interpret(&mut self, statements: &Vec<Stmt>) {
         for statement in statements {
             if let Err(early_return) = self.execute(statement) {
                 match early_return {
                     EarlyReturn::Return(_) => {
                         // We discard the value of the return statement at the top level.
-                        return Ok(());
                     }
                     EarlyReturn::Error(error) => {
-                        return Err(error);
+                        self.error_collector.borrow_mut().runtime_error(error);
+                        return;
                     }
                 }
             }
         }
-
-        Ok(())
     }
 
     fn execute(&mut self, stmt: &Stmt) -> Result<(), EarlyReturn> {

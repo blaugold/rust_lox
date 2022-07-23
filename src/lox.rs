@@ -1,8 +1,10 @@
 use std::{
+    cell::RefCell,
     env,
     fs::File,
     io::{self, Read, Write},
     process::exit,
+    rc::Rc,
 };
 
 use crate::{
@@ -13,17 +15,17 @@ use crate::{
 };
 
 pub struct Lox {
-    had_error: bool,
-    had_runtime_error: bool,
+    error_collector: Rc<RefCell<ErrorCollector>>,
     interpreter: Interpreter,
 }
 
 impl Lox {
     pub fn new() -> Lox {
+        let error_collector = Rc::new(RefCell::new(ErrorCollector::new()));
+
         Lox {
-            had_error: false,
-            had_runtime_error: false,
-            interpreter: Interpreter::new(),
+            error_collector: error_collector.clone(),
+            interpreter: Interpreter::new(error_collector.clone()),
         }
     }
 
@@ -50,8 +52,7 @@ impl Lox {
             match lines.next() {
                 Some(line) => {
                     self.run(&line.unwrap());
-                    self.had_error = false;
-                    self.had_runtime_error = false;
+                    self.error_collector.borrow_mut().reset();
                 }
                 None => {
                     return;
@@ -68,25 +69,36 @@ impl Lox {
 
         self.run(&content);
 
-        if self.had_error {
+        if self.error_collector.borrow().had_error {
             exit(1);
         }
-        if self.had_runtime_error {
+        if self.error_collector.borrow().had_runtime_error {
             exit(1);
         }
     }
 
     fn run(&mut self, source: &str) {
-        let scanner = Scanner::new(self, source);
-        let (tokens, lox) = scanner.scan_tokens();
-        let parser = Parser::new(lox, tokens);
-        let (statements, lox) = parser.parse();
+        let scanner = Scanner::new(self.error_collector.clone(), source);
+        let tokens = scanner.scan_tokens();
+        let parser = Parser::new(self.error_collector.clone(), tokens);
+        let statements = parser.parse();
 
-        if !lox.had_error {
-            match lox.interpreter.interpret(&statements) {
-                Err(err) => lox.runtime_error(err),
-                Ok(_) => {}
-            }
+        if !self.error_collector.borrow().had_error {
+            self.interpreter.interpret(&statements);
+        }
+    }
+}
+
+pub struct ErrorCollector {
+    had_error: bool,
+    had_runtime_error: bool,
+}
+
+impl ErrorCollector {
+    fn new() -> ErrorCollector {
+        ErrorCollector {
+            had_error: false,
+            had_runtime_error: false,
         }
     }
 
@@ -105,6 +117,11 @@ impl Lox {
     pub fn runtime_error(&mut self, err: RuntimeError) {
         println!("{} [line {}]", err.message, err.token.line);
         self.had_runtime_error = true;
+    }
+
+    fn reset(&mut self) {
+        self.had_error = false;
+        self.had_runtime_error = false;
     }
 
     fn report_static_error(&mut self, line: usize, at: &str, message: &str) {

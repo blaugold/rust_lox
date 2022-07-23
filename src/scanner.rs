@@ -1,10 +1,11 @@
-use crate::token::LiteralValue;
+use std::{cell::RefCell, rc::Rc};
 
-use super::lox::Lox;
+use crate::{lox::ErrorCollector, token::LiteralValue};
+
 use super::token::{Token, TokenType};
 
 pub struct Scanner<'a> {
-    lox: &'a mut Lox,
+    error_collector: Rc<RefCell<ErrorCollector>>,
     source: &'a str,
     bytes: &'a [u8],
     line: usize,
@@ -14,9 +15,9 @@ pub struct Scanner<'a> {
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(lox: &'a mut Lox, source: &'a str) -> Scanner<'a> {
+    pub fn new(error_collector: Rc<RefCell<ErrorCollector>>, source: &'a str) -> Scanner<'a> {
         Scanner {
-            lox,
+            error_collector,
             source,
             bytes: source.as_bytes(),
             line: 1,
@@ -26,7 +27,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    pub fn scan_tokens(mut self) -> (Vec<Token>, &'a mut Lox) {
+    pub fn scan_tokens(mut self) -> Vec<Token> {
         while !self.is_at_end() {
             self.scan_token();
             self.start = self.current;
@@ -34,7 +35,7 @@ impl<'a> Scanner<'a> {
 
         self.add_token(TokenType::Eof);
 
-        (self.tokens, self.lox)
+        self.tokens
     }
 
     fn scan_token(&mut self) {
@@ -100,7 +101,9 @@ impl<'a> Scanner<'a> {
                     self.identifier();
                 } else {
                     let message = format!("Unexpected character '{}'.", character);
-                    self.lox.scanner_error(self.line, &message);
+                    self.error_collector
+                        .borrow_mut()
+                        .scanner_error(self.line, &message);
                 }
             }
         }
@@ -126,7 +129,9 @@ impl<'a> Scanner<'a> {
         }
 
         if !self.match_char('"') {
-            self.lox.scanner_error(self.line, "Unterminated string.");
+            self.error_collector
+                .borrow_mut()
+                .scanner_error(self.line, "Unterminated string.");
             return;
         }
 
