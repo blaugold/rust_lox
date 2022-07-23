@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    collections::HashMap,
     error::Error,
     fmt, mem,
     rc::Rc,
@@ -19,7 +20,9 @@ use crate::{
 
 pub struct Interpreter {
     error_collector: Rc<RefCell<ErrorCollector>>,
+    globals: Rc<RefCell<Environment>>,
     environment: Rc<RefCell<Environment>>,
+    locals: HashMap<Expr, usize>,
 }
 
 impl Interpreter {
@@ -27,26 +30,29 @@ impl Interpreter {
         let mut globals = Environment::new();
         BuiltinFunction::clock().add_to_environment(&mut globals);
 
+        let globals = Rc::new(RefCell::new(globals));
+
         Interpreter {
             error_collector,
-            environment: Rc::new(RefCell::new(globals)),
+            globals: globals.clone(),
+            environment: globals,
+            locals: HashMap::new(),
         }
     }
 
     pub fn interpret(&mut self, statements: &Vec<Stmt>) {
         for statement in statements {
             if let Err(early_return) = self.execute(statement) {
-                match early_return {
-                    EarlyReturn::Return(_) => {
-                        // We discard the value of the return statement at the top level.
-                    }
-                    EarlyReturn::Error(error) => {
-                        self.error_collector.borrow_mut().runtime_error(error);
-                        return;
-                    }
+                if let EarlyReturn::Error(error) = early_return {
+                    self.error_collector.borrow_mut().runtime_error(error);
+                    return;
                 }
             }
         }
+    }
+
+    pub fn resolve_local(&mut self, expr: Expr, scope_index: usize) {
+        self.locals.insert(expr, scope_index);
     }
 
     fn execute(&mut self, stmt: &Stmt) -> Result<(), EarlyReturn> {
@@ -89,6 +95,16 @@ impl Interpreter {
         match expr {
             None => Ok(RuntimeValue::Nil),
             Some(expr) => self.evaluate(expr),
+        }
+    }
+
+    fn lookup_variable(&mut self, expr: &Rc<VariableExpr>) -> Result<RuntimeValue, EarlyReturn> {
+        if let Some(scope_index) = self.locals.get(&Expr::Variable(expr.clone())) {
+            self.environment
+                .borrow_mut()
+                .get_at(&expr.name, *scope_index)
+        } else {
+            self.globals.borrow().get(&expr.name)
         }
     }
 }
@@ -157,14 +173,25 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         })
     }
 
-    fn visit_variable_expr(&mut self, expr: &VariableExpr) -> Result<RuntimeValue, EarlyReturn> {
-        self.environment.borrow().get(&expr.name)
+    fn visit_variable_expr(
+        &mut self,
+        expr: &Rc<VariableExpr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
+        self.lookup_variable(expr)
     }
 
-    fn visit_assign_expr(&mut self, expr: &AssignExpr) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_assign_expr(&mut self, expr: &Rc<AssignExpr>) -> Result<RuntimeValue, EarlyReturn> {
         let value = self.evaluate(&expr.value)?;
         let result = value.clone();
-        self.environment.borrow_mut().assign(&expr.name, value)?;
+
+        if let Some(scope_index) = self.locals.get(&Expr::Assign(expr.clone())) {
+            self.environment
+                .borrow_mut()
+                .assign_at(&expr.name, *scope_index, value)?;
+        } else {
+            self.globals.borrow_mut().assign(&expr.name, value)?;
+        }
+
         Ok(result)
     }
 

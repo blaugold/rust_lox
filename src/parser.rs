@@ -289,13 +289,13 @@ impl Parser {
 
         if self.match_token(TokenType::Equal) {
             let name = match expr {
-                Expr::Variable(expr) => expr.name,
+                Expr::Variable(expr) => expr.name.clone(),
                 _ => {
                     return self.error(&self.peek().clone(), "Expect assignment to variable.");
                 }
             };
             let value = self.assign_expr()?;
-            Ok(Expr::Assign(Box::new(AssignExpr { name, value })))
+            Ok(Expr::Assign(Rc::new(AssignExpr { name, value })))
         } else {
             Ok(expr)
         }
@@ -456,7 +456,7 @@ impl Parser {
                 value: self.previous().literal.unwrap(),
             })))
         } else if self.match_token(TokenType::Identifier) {
-            Ok(Expr::Variable(Box::new(VariableExpr {
+            Ok(Expr::Variable(Rc::new(VariableExpr {
                 name: self.previous(),
             })))
         } else {

@@ -30,6 +30,18 @@ impl Environment {
         Ok(())
     }
 
+    pub fn assign_at(
+        &mut self,
+        name: &Token,
+        scope_index: usize,
+        value: RuntimeValue,
+    ) -> Result<(), EarlyReturn> {
+        self.with_scope_at(scope_index, |scope| {
+            scope.insert(name.lexeme.to_string(), value);
+        });
+        Ok(())
+    }
+
     pub fn assign(&mut self, name: &Token, value: RuntimeValue) -> Result<(), EarlyReturn> {
         if self.values.contains_key(&name.lexeme) {
             self.values.insert(name.lexeme.to_string(), value);
@@ -46,6 +58,14 @@ impl Environment {
         }
     }
 
+    pub fn get_at(
+        &mut self,
+        name: &Token,
+        scope_index: usize,
+    ) -> Result<RuntimeValue, EarlyReturn> {
+        self.with_scope_at(scope_index, |scope| Ok(scope[&name.lexeme].clone()))
+    }
+
     pub fn get(&self, name: &Token) -> Result<RuntimeValue, EarlyReturn> {
         match self.values.get(&name.lexeme) {
             Some(value) => return Ok(value.clone()),
@@ -58,5 +78,20 @@ impl Environment {
                 .into(),
             },
         }
+    }
+
+    fn with_scope_at<Fn, T>(&mut self, scope_index: usize, run: Fn) -> T
+    where
+        Fn: FnOnce(&mut HashMap<String, RuntimeValue>) -> T,
+    {
+        if scope_index == 0 {
+            return run(&mut self.values);
+        }
+
+        self.enclosing
+            .as_ref()
+            .unwrap()
+            .borrow_mut()
+            .with_scope_at(scope_index - 1, run)
     }
 }

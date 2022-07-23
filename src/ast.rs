@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{hash::Hash, rc::Rc};
 
 use crate::token::{LiteralValue, Token};
 
@@ -81,18 +81,49 @@ pub struct ReturnStmt {
 
 pub enum Expr {
     Literal(Box<LiteralExpr>),
-    Variable(Box<VariableExpr>),
-    Assign(Box<AssignExpr>),
+    Variable(Rc<VariableExpr>),
+    Assign(Rc<AssignExpr>),
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
     Grouping(Box<GroupingExpr>),
     Call(Box<CallExpr>),
 }
 
+impl Eq for Expr {}
+
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Literal(l), Self::Literal(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
+            (Self::Variable(l), Self::Variable(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
+            (Self::Assign(l), Self::Assign(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
+            (Self::Unary(l), Self::Unary(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
+            (Self::Binary(l), Self::Binary(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
+            (Self::Grouping(l), Self::Grouping(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
+            (Self::Call(l), Self::Call(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
+            _ => false,
+        }
+    }
+}
+
+impl Hash for Expr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Expr::Literal(v) => std::ptr::hash(v.as_ref(), state),
+            Expr::Variable(v) => std::ptr::hash(v.as_ref(), state),
+            Expr::Assign(v) => std::ptr::hash(v.as_ref(), state),
+            Expr::Unary(v) => std::ptr::hash(v.as_ref(), state),
+            Expr::Binary(v) => std::ptr::hash(v.as_ref(), state),
+            Expr::Grouping(v) => std::ptr::hash(v.as_ref(), state),
+            Expr::Call(v) => std::ptr::hash(v.as_ref(), state),
+        }
+    }
+}
+
 pub trait ExprVisitor<T> {
     fn visit_literal_expr(&mut self, expr: &LiteralExpr) -> T;
-    fn visit_variable_expr(&mut self, expr: &VariableExpr) -> T;
-    fn visit_assign_expr(&mut self, expr: &AssignExpr) -> T;
+    fn visit_variable_expr(&mut self, expr: &Rc<VariableExpr>) -> T;
+    fn visit_assign_expr(&mut self, expr: &Rc<AssignExpr>) -> T;
     fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> T;
     fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> T;
     fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> T;

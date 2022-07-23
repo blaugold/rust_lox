@@ -10,13 +10,14 @@ use std::{
 use crate::{
     interpreter::{Interpreter, RuntimeError},
     parser::Parser,
+    resolver::Resolver,
     scanner::Scanner,
     token::{Token, TokenType},
 };
 
 pub struct Lox {
     error_collector: Rc<RefCell<ErrorCollector>>,
-    interpreter: Interpreter,
+    interpreter: Rc<RefCell<Interpreter>>,
 }
 
 impl Lox {
@@ -25,7 +26,7 @@ impl Lox {
 
         Lox {
             error_collector: error_collector.clone(),
-            interpreter: Interpreter::new(error_collector.clone()),
+            interpreter: Rc::new(RefCell::new(Interpreter::new(error_collector.clone()))),
         }
     }
 
@@ -83,9 +84,18 @@ impl Lox {
         let parser = Parser::new(self.error_collector.clone(), tokens);
         let statements = parser.parse();
 
-        if !self.error_collector.borrow().had_error {
-            self.interpreter.interpret(&statements);
+        if self.error_collector.borrow().had_error {
+            return;
         }
+
+        let resolver = Resolver::new(self.error_collector.clone(), self.interpreter.clone());
+        resolver.resolve(&statements);
+
+        if self.error_collector.borrow().had_error {
+            return;
+        }
+
+        self.interpreter.borrow_mut().interpret(&statements);
     }
 }
 
@@ -107,11 +117,11 @@ impl ErrorCollector {
     }
 
     pub fn parser_error(&mut self, token: &Token, message: &str) {
-        if token.token_type == TokenType::Eof {
-            self.report_static_error(token.line, " at end", message);
-        } else {
-            self.report_static_error(token.line, &format!(" at '{}'", token.lexeme), message);
-        }
+        self.report_static_error_for_token(token, message);
+    }
+
+    pub fn resolver_error(&mut self, token: &Token, message: &str) {
+        self.report_static_error_for_token(token, message);
     }
 
     pub fn runtime_error(&mut self, err: RuntimeError) {
@@ -122,6 +132,14 @@ impl ErrorCollector {
     fn reset(&mut self) {
         self.had_error = false;
         self.had_runtime_error = false;
+    }
+
+    fn report_static_error_for_token(&mut self, token: &Token, message: &str) {
+        if token.token_type == TokenType::Eof {
+            self.report_static_error(token.line, " at end", message);
+        } else {
+            self.report_static_error(token.line, &format!(" at '{}'", token.lexeme), message);
+        }
     }
 
     fn report_static_error(&mut self, line: usize, at: &str, message: &str) {
