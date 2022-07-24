@@ -9,9 +9,9 @@ use std::{
 
 use crate::{
     ast::{
-        AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, ExprVisitor, ExpressionStmt,
-        FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt, Stmt, StmtVisitor,
-        UnaryExpr, VarStmt, VariableExpr, WhileStmt,
+        AssignExpr, BinaryExpr, BlockStmt, CallExpr, ConditionExpr, Expr, ExprVisitor,
+        ExpressionStmt, FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt,
+        Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     environment::Environment,
     lox::ErrorCollector,
@@ -272,6 +272,28 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
             }
             _ => panic!(),
         })
+    }
+
+    fn visit_condition_expr(&mut self, expr: &ConditionExpr) -> Result<RuntimeValue, EarlyReturn> {
+        let left = self.evaluate(&expr.left)?;
+
+        Ok(RuntimeValue::Bool(match expr.operator.token_type {
+            TokenType::Or => {
+                if left.is_truthy() {
+                    true
+                } else {
+                    self.evaluate(&expr.right)?.is_truthy()
+                }
+            }
+            TokenType::And => {
+                if !left.is_truthy() {
+                    false
+                } else {
+                    self.evaluate(&expr.right)?.is_truthy()
+                }
+            }
+            _ => panic!(),
+        }))
     }
 
     fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> Result<RuntimeValue, EarlyReturn> {

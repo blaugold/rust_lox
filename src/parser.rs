@@ -2,9 +2,9 @@ use std::{cell::RefCell, error::Error, fmt, rc::Rc};
 
 use crate::{
     ast::{
-        AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, ExpressionStmt, FunctionStmt,
-        GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt, Stmt, UnaryExpr, VarStmt,
-        VariableExpr, WhileStmt,
+        AssignExpr, BinaryExpr, BlockStmt, CallExpr, ConditionExpr, Expr, ExpressionStmt,
+        FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt, Stmt, UnaryExpr,
+        VarStmt, VariableExpr, WhileStmt,
     },
     lox::ErrorCollector,
     token::{LiteralValue, Token, TokenType},
@@ -285,7 +285,7 @@ impl Parser {
     }
 
     fn assign_expr(&mut self) -> Result<Expr, ParserError> {
-        let expr = self.equality_expr()?;
+        let expr = self.or_expr()?;
 
         if self.match_token(TokenType::Equal) {
             let name = match expr {
@@ -299,6 +299,38 @@ impl Parser {
         } else {
             Ok(expr)
         }
+    }
+
+    fn or_expr(&mut self) -> Result<Expr, ParserError> {
+        let mut expr = self.and_expr()?;
+
+        while self.match_token(TokenType::Or) {
+            let operator = self.previous();
+            let right = self.and_expr()?;
+            expr = Expr::Condition(Box::new(ConditionExpr {
+                left: expr,
+                operator,
+                right,
+            }));
+        }
+
+        Ok(expr)
+    }
+
+    fn and_expr(&mut self) -> Result<Expr, ParserError> {
+        let mut expr = self.equality_expr()?;
+
+        while self.match_token(TokenType::And) {
+            let operator = self.previous();
+            let right = self.equality_expr()?;
+            expr = Expr::Condition(Box::new(ConditionExpr {
+                left: expr,
+                operator,
+                right,
+            }));
+        }
+
+        Ok(expr)
     }
 
     fn equality_expr(&mut self) -> Result<Expr, ParserError> {

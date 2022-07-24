@@ -85,6 +85,7 @@ pub enum Expr {
     Assign(Rc<AssignExpr>),
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
+    Condition(Box<ConditionExpr>),
     Grouping(Box<GroupingExpr>),
     Call(Box<CallExpr>),
 }
@@ -99,6 +100,7 @@ impl PartialEq for Expr {
             (Self::Assign(l), Self::Assign(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
             (Self::Unary(l), Self::Unary(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
             (Self::Binary(l), Self::Binary(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
+            (Self::Condition(l), Self::Condition(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
             (Self::Grouping(l), Self::Grouping(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
             (Self::Call(l), Self::Call(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
             _ => false,
@@ -114,6 +116,7 @@ impl Hash for Expr {
             Expr::Assign(v) => std::ptr::hash(v.as_ref(), state),
             Expr::Unary(v) => std::ptr::hash(v.as_ref(), state),
             Expr::Binary(v) => std::ptr::hash(v.as_ref(), state),
+            Expr::Condition(v) => std::ptr::hash(v.as_ref(), state),
             Expr::Grouping(v) => std::ptr::hash(v.as_ref(), state),
             Expr::Call(v) => std::ptr::hash(v.as_ref(), state),
         }
@@ -126,6 +129,7 @@ pub trait ExprVisitor<T> {
     fn visit_assign_expr(&mut self, expr: &Rc<AssignExpr>) -> T;
     fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> T;
     fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> T;
+    fn visit_condition_expr(&mut self, expr: &ConditionExpr) -> T;
     fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> T;
     fn visit_call_expr(&mut self, expr: &CallExpr) -> T;
 }
@@ -139,6 +143,7 @@ impl Expr {
             Assign(expr) => visitor.visit_assign_expr(expr),
             Unary(expr) => visitor.visit_unary_expr(expr),
             Binary(expr) => visitor.visit_binary_expr(expr),
+            Condition(expr) => visitor.visit_condition_expr(expr),
             Grouping(expr) => visitor.visit_grouping_expr(expr),
             Call(expr) => visitor.visit_call_expr(expr),
         }
@@ -164,6 +169,12 @@ pub struct UnaryExpr {
 }
 
 pub struct BinaryExpr {
+    pub left: Expr,
+    pub operator: Token,
+    pub right: Expr,
+}
+
+pub struct ConditionExpr {
     pub left: Expr,
     pub operator: Token,
     pub right: Expr,

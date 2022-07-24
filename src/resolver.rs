@@ -2,9 +2,9 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     ast::{
-        AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, ExprVisitor, ExpressionStmt,
-        FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt, Stmt, StmtVisitor,
-        UnaryExpr, VarStmt, VariableExpr, WhileStmt,
+        AssignExpr, BinaryExpr, BlockStmt, CallExpr, ConditionExpr, Expr, ExprVisitor,
+        ExpressionStmt, FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt,
+        Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     interpreter::Interpreter,
     lox::ErrorCollector,
@@ -199,7 +199,12 @@ impl ExprVisitor<()> for Resolver {
 
     fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> () {
         self.resolve_expr(&expr.left);
-        self.resolve_expr(&&expr.right);
+        self.resolve_expr(&expr.right);
+    }
+
+    fn visit_condition_expr(&mut self, expr: &ConditionExpr) -> () {
+        self.resolve_expr(&expr.left);
+        self.resolve_expr(&expr.right);
     }
 
     fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> () {
