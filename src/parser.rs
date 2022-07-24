@@ -4,7 +4,7 @@ use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr,
         ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
-        ReturnStmt, SetExpr, Stmt, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
+        ReturnStmt, SetExpr, Stmt, ThisExpr, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     lox::ErrorCollector,
     token::{LiteralValue, Token, TokenType},
@@ -525,6 +525,10 @@ impl Parser {
         } else if self.match_token(TokenType::Identifier) {
             Ok(Expr::Variable(Rc::new(VariableExpr {
                 name: self.previous(),
+            })))
+        } else if self.match_token(TokenType::This) {
+            Ok(Expr::This(Rc::new(ThisExpr {
+                token: self.previous(),
             })))
         } else {
             self.error(&self.peek().clone(), "Expected expression.")

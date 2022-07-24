@@ -98,6 +98,7 @@ pub enum Expr {
     Call(Box<CallExpr>),
     Get(Box<GetExpr>),
     Set(Box<SetExpr>),
+    This(Rc<ThisExpr>),
 }
 
 impl Eq for Expr {}
@@ -116,6 +117,7 @@ impl PartialEq for Expr {
             (Call(l), Call(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
             (Get(l), Get(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
             (Set(l), Set(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
+            (This(l), This(r)) => std::ptr::eq(l.as_ref(), r.as_ref()),
             _ => false,
         }
     }
@@ -136,6 +138,7 @@ impl Hash for Expr {
             Call(v) => std::ptr::hash(v.as_ref(), state),
             Get(v) => std::ptr::hash(v.as_ref(), state),
             Set(v) => std::ptr::hash(v.as_ref(), state),
+            This(v) => std::ptr::hash(v.as_ref(), state),
         }
     }
 }
@@ -151,6 +154,7 @@ pub trait ExprVisitor<T> {
     fn visit_call_expr(&mut self, expr: &CallExpr) -> T;
     fn visit_get_expr(&mut self, expr: &GetExpr) -> T;
     fn visit_set_expr(&mut self, expr: &SetExpr) -> T;
+    fn visit_this_expr(&mut self, expr: &Rc<ThisExpr>) -> T;
 }
 
 impl Expr {
@@ -167,6 +171,7 @@ impl Expr {
             Call(expr) => visitor.visit_call_expr(expr),
             Get(expr) => visitor.visit_get_expr(expr),
             Set(expr) => visitor.visit_set_expr(expr),
+            This(expr) => visitor.visit_this_expr(expr),
         }
     }
 }
@@ -220,4 +225,8 @@ pub struct SetExpr {
     pub object: Expr,
     pub name: Token,
     pub value: Expr,
+}
+
+pub struct ThisExpr {
+    pub token: Token,
 }

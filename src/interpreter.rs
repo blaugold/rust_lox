@@ -11,7 +11,8 @@ use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr, ExprVisitor,
         ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
-        ReturnStmt, SetExpr, Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
+        ReturnStmt, SetExpr, Stmt, StmtVisitor, ThisExpr, UnaryExpr, VarStmt, VariableExpr,
+        WhileStmt,
     },
     environment::Environment,
     lox::ErrorCollector,
@@ -98,13 +99,11 @@ impl Interpreter {
         }
     }
 
-    fn lookup_variable(&mut self, expr: &Rc<VariableExpr>) -> Result<RuntimeValue, EarlyReturn> {
-        if let Some(scope_index) = self.locals.get(&Expr::Variable(expr.clone())) {
-            self.environment
-                .borrow_mut()
-                .get_at(&expr.name, *scope_index)
+    fn lookup_variable(&mut self, name: &Token, expr: &Expr) -> Result<RuntimeValue, EarlyReturn> {
+        if let Some(scope_index) = self.locals.get(expr) {
+            self.environment.borrow_mut().get_at(name, *scope_index)
         } else {
-            self.globals.borrow().get(&expr.name)
+            self.globals.borrow().get(name)
         }
     }
 }
@@ -199,7 +198,7 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         &mut self,
         expr: &Rc<VariableExpr>,
     ) -> Result<RuntimeValue, EarlyReturn> {
-        self.lookup_variable(expr)
+        self.lookup_variable(&expr.name, &Expr::Variable(expr.clone()))
     }
 
     fn visit_assign_expr(&mut self, expr: &Rc<AssignExpr>) -> Result<RuntimeValue, EarlyReturn> {
@@ -362,7 +361,7 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         let object = self.evaluate(&expr.object)?;
 
         match object {
-            RuntimeValue::Instance(instance) => instance.borrow().get(&expr.name),
+            RuntimeValue::Instance(instance) => instance.get(&expr.name),
             _ => RuntimeError {
                 message: "Only instances have properties.".to_string(),
                 token: expr.name.clone(),
@@ -387,6 +386,10 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
             }
             .into(),
         }
+    }
+
+    fn visit_this_expr(&mut self, expr: &Rc<ThisExpr>) -> Result<RuntimeValue, EarlyReturn> {
+        self.lookup_variable(&expr.token, &Expr::This(expr.clone()))
     }
 }
 
@@ -576,6 +579,21 @@ pub struct DeclaredFunction {
     closure: Rc<RefCell<Environment>>,
 }
 
+impl DeclaredFunction {
+    fn bind(&self, instance: &Rc<RefCell<Instance>>) -> DeclaredFunction {
+        let mut environment = Environment::new_enclosed(&self.closure);
+
+        environment
+            .define("this", RuntimeValue::Instance(instance.clone()))
+            .unwrap();
+
+        DeclaredFunction {
+            declaration: self.declaration.clone(),
+            closure: Rc::new(RefCell::new(environment)),
+        }
+    }
+}
+
 impl Callable for Rc<DeclaredFunction> {
     fn arity(&self) -> u8 {
         self.declaration.parameters.len() as u8
@@ -658,13 +676,27 @@ impl Instance {
         }
     }
 
+    fn set(&mut self, name: &str, value: RuntimeValue) {
+        self.fields.insert(name.to_string(), value);
+    }
+
+    fn find_method(&self, name: &str) -> Option<Rc<DeclaredFunction>> {
+        self.class.methods.get(name).map(|method| method.clone())
+    }
+}
+
+trait InstanceGet {
+    fn get(&self, name: &Token) -> Result<RuntimeValue, EarlyReturn>;
+}
+
+impl InstanceGet for Rc<RefCell<Instance>> {
     fn get(&self, name: &Token) -> Result<RuntimeValue, EarlyReturn> {
-        if let Some(value) = self.fields.get(&name.lexeme) {
+        if let Some(value) = self.borrow().fields.get(&name.lexeme) {
             return Ok(value.clone());
         }
 
-        if let Some(method) = self.find_method(&name.lexeme) {
-            return Ok(method.clone());
+        if let Some(method) = self.borrow().find_method(&name.lexeme) {
+            return Ok(RuntimeValue::DeclaredFunction(Rc::new(method.bind(self))));
         }
 
         RuntimeError {
@@ -672,17 +704,6 @@ impl Instance {
             token: name.clone(),
         }
         .into()
-    }
-
-    fn set(&mut self, name: &str, value: RuntimeValue) {
-        self.fields.insert(name.to_string(), value);
-    }
-
-    fn find_method(&self, name: &str) -> Option<RuntimeValue> {
-        self.class
-            .methods
-            .get(name)
-            .map(|method| RuntimeValue::DeclaredFunction(method.clone()))
     }
 }
 

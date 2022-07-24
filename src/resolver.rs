@@ -4,7 +4,8 @@ use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr, ExprVisitor,
         ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
-        ReturnStmt, SetExpr, Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
+        ReturnStmt, SetExpr, Stmt, StmtVisitor, ThisExpr, UnaryExpr, VarStmt, VariableExpr,
+        WhileStmt,
     },
     interpreter::Interpreter,
     lox::ErrorCollector,
@@ -18,11 +19,18 @@ enum FunctionType {
     Method,
 }
 
+#[derive(PartialEq, Eq, Copy, Clone)]
+enum ClassType {
+    None,
+    Class,
+}
+
 pub struct Resolver {
     error_collector: Rc<RefCell<ErrorCollector>>,
     interpreter: Rc<RefCell<Interpreter>>,
     scopes: Vec<HashMap<String, bool>>,
     function_type: FunctionType,
+    class_type: ClassType,
 }
 
 impl Resolver {
@@ -35,6 +43,7 @@ impl Resolver {
             interpreter,
             scopes: vec![],
             function_type: FunctionType::None,
+            class_type: ClassType::None,
         }
     }
 
@@ -85,7 +94,7 @@ impl Resolver {
     }
 
     fn resolve_function(&mut self, stmt: &FunctionStmt, function_type: FunctionType) {
-        let previous_function_type = self.function_type;
+        let outer_function_type = self.function_type;
         self.function_type = function_type;
 
         self.begin_scope();
@@ -99,7 +108,7 @@ impl Resolver {
 
         self.end_scope();
 
-        self.function_type = previous_function_type;
+        self.function_type = outer_function_type;
     }
 
     fn resolve_local(&mut self, name: &Token, expr: Expr) {
@@ -142,13 +151,26 @@ impl StmtVisitor<()> for Resolver {
     }
 
     fn visit_class_stmt(&mut self, stmt: &Rc<ClassStmt>) -> () {
+        let outer_class_type = self.class_type;
+        self.class_type = ClassType::Class;
+
         self.declare(&stmt.name);
         self.define(&stmt.name);
 
         for method in &stmt.methods {
+            self.begin_scope();
+            self.scopes
+                .last_mut()
+                .unwrap()
+                .insert("this".to_string(), true);
+
             let declaration = FunctionType::Method;
             self.resolve_function(method, declaration);
+
+            self.end_scope();
         }
+
+        self.class_type = outer_class_type;
     }
 
     fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> () {
@@ -237,5 +259,18 @@ impl ExprVisitor<()> for Resolver {
     fn visit_set_expr(&mut self, expr: &SetExpr) -> () {
         self.resolve_expr(&expr.object);
         self.resolve_expr(&expr.value);
+    }
+
+    fn visit_this_expr(&mut self, expr: &Rc<ThisExpr>) -> () {
+        match self.class_type {
+            ClassType::Class => {
+                self.resolve_local(&expr.token, Expr::This(expr.clone()));
+            }
+            _ => {
+                self.error_collector
+                    .borrow_mut()
+                    .resolver_error(&expr.token, "Can't use 'this' outside of a class.");
+            }
+        }
     }
 }
