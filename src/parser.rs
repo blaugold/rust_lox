@@ -1,4 +1,4 @@
-use std::{cell::RefCell, error::Error, fmt, rc::Rc};
+use std::{error::Error, fmt, rc::Rc};
 
 use crate::{
     ast::{
@@ -10,14 +10,14 @@ use crate::{
     token::{LiteralValue, Token, TokenType},
 };
 
-pub struct Parser {
-    error_collector: Rc<RefCell<ErrorCollector>>,
+pub struct Parser<'a> {
+    error_collector: &'a mut ErrorCollector,
     tokens: Vec<Token>,
     current: usize,
 }
 
-impl Parser {
-    pub fn new(error_collector: Rc<RefCell<ErrorCollector>>, tokens: Vec<Token>) -> Parser {
+impl<'a> Parser<'a> {
+    pub fn new(error_collector: &'a mut ErrorCollector, tokens: Vec<Token>) -> Parser {
         Parser {
             error_collector,
             tokens,
@@ -29,7 +29,7 @@ impl Parser {
         let mut statements = Vec::new();
 
         while !self.is_at_end() {
-            if let Some(statement) = self.declaration_with_sync() {
+            if let Some(statement) = self.try_declaration() {
                 statements.push(statement);
             }
         }
@@ -37,7 +37,7 @@ impl Parser {
         statements
     }
 
-    fn declaration_with_sync(&mut self) -> Option<Stmt> {
+    fn try_declaration(&mut self) -> Option<Stmt> {
         match self.declaration() {
             Ok(statement) => Some(statement),
             Err(_) => {
@@ -539,7 +539,7 @@ impl Parser {
         self.peek().token_type == TokenType::Eof
     }
 
-    fn peek<'a>(&'a self) -> &'a Token {
+    fn peek<'b>(&'b self) -> &'b Token {
         &self.tokens[self.current]
     }
 
@@ -571,9 +571,7 @@ impl Parser {
     }
 
     fn error<T>(&mut self, token: &Token, message: &str) -> Result<T, ParserError> {
-        self.error_collector
-            .borrow_mut()
-            .parser_error(token, message);
+        self.error_collector.parser_error(token, message);
         Err(ParserError {})
     }
 }

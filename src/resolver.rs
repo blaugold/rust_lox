@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     ast::{
@@ -26,19 +26,19 @@ enum ClassType {
     Class,
 }
 
-pub struct Resolver {
-    error_collector: Rc<RefCell<ErrorCollector>>,
-    interpreter: Rc<RefCell<Interpreter>>,
+pub struct Resolver<'a> {
+    error_collector: &'a mut ErrorCollector,
+    interpreter: &'a mut Interpreter,
     scopes: Vec<HashMap<String, bool>>,
     function_type: FunctionType,
     class_type: ClassType,
 }
 
-impl Resolver {
+impl<'a> Resolver<'a> {
     pub fn new(
-        error_collector: Rc<RefCell<ErrorCollector>>,
-        interpreter: Rc<RefCell<Interpreter>>,
-    ) -> Resolver {
+        error_collector: &'a mut ErrorCollector,
+        interpreter: &'a mut Interpreter,
+    ) -> Resolver<'a> {
         Resolver {
             error_collector,
             interpreter,
@@ -80,7 +80,6 @@ impl Resolver {
         if let Some(scope) = self.scopes.last_mut() {
             if scope.contains_key(&name.lexeme) {
                 self.error_collector
-                    .borrow_mut()
                     .resolver_error(name, "Already a variable with this name in this scope.")
             }
 
@@ -115,16 +114,14 @@ impl Resolver {
     fn resolve_local(&mut self, name: &Token, expr: Expr) {
         for (scope_index, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(&name.lexeme) {
-                self.interpreter
-                    .borrow_mut()
-                    .resolve_local(expr, scope_index);
+                self.interpreter.resolve_local(expr, scope_index);
                 return;
             }
         }
     }
 }
 
-impl StmtVisitor<()> for Resolver {
+impl<'a> StmtVisitor<()> for Resolver<'a> {
     fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt) -> () {
         self.resolve_expr(&stmt.expression);
     }
@@ -198,11 +195,9 @@ impl StmtVisitor<()> for Resolver {
         match self.function_type {
             FunctionType::None => self
                 .error_collector
-                .borrow_mut()
                 .resolver_error(&stmt.token, "Can't return from top level code."),
             FunctionType::Initialize if stmt.value != None => self
                 .error_collector
-                .borrow_mut()
                 .resolver_error(&stmt.token, "Can't return value from initializer."),
             _ => {}
         };
@@ -213,14 +208,14 @@ impl StmtVisitor<()> for Resolver {
     }
 }
 
-impl ExprVisitor<()> for Resolver {
+impl<'a> ExprVisitor<()> for Resolver<'a> {
     fn visit_literal_expr(&mut self, _: &LiteralExpr) -> () {}
 
     fn visit_variable_expr(&mut self, expr: &Rc<VariableExpr>) -> () {
         if let Some(scope) = self.scopes.last() {
             if let Some(defined) = scope.get(&expr.name.lexeme) {
                 if !defined {
-                    self.error_collector.borrow_mut().resolver_error(
+                    self.error_collector.resolver_error(
                         &expr.name,
                         "Can't read local variable in it's own initializer.",
                     );
@@ -278,7 +273,6 @@ impl ExprVisitor<()> for Resolver {
             }
             _ => {
                 self.error_collector
-                    .borrow_mut()
                     .resolver_error(&expr.token, "Can't use 'this' outside of a class.");
             }
         }

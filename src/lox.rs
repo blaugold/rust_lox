@@ -17,7 +17,7 @@ use crate::{
 
 pub struct Lox {
     error_collector: Rc<RefCell<ErrorCollector>>,
-    interpreter: Rc<RefCell<Interpreter>>,
+    interpreter: Interpreter,
 }
 
 impl Lox {
@@ -26,7 +26,7 @@ impl Lox {
 
         Lox {
             error_collector: error_collector.clone(),
-            interpreter: Rc::new(RefCell::new(Interpreter::new(error_collector.clone()))),
+            interpreter: Interpreter::new(error_collector.clone()),
         }
     }
 
@@ -79,23 +79,26 @@ impl Lox {
     }
 
     fn run(&mut self, source: &str) {
-        let scanner = Scanner::new(self.error_collector.clone(), source);
+        let mut error_collector = self.error_collector.borrow_mut();
+        let scanner = Scanner::new(&mut error_collector, source);
         let tokens = scanner.scan_tokens();
-        let parser = Parser::new(self.error_collector.clone(), tokens);
+        let parser = Parser::new(&mut error_collector, tokens);
         let statements = parser.parse();
 
-        if self.error_collector.borrow().had_error {
+        if error_collector.had_error {
             return;
         }
 
-        let resolver = Resolver::new(self.error_collector.clone(), self.interpreter.clone());
+        let resolver = Resolver::new(&mut error_collector, &mut self.interpreter);
         resolver.resolve(&statements);
 
-        if self.error_collector.borrow().had_error {
+        if error_collector.had_error {
             return;
         }
 
-        self.interpreter.borrow_mut().interpret(&statements);
+        drop(error_collector);
+
+        self.interpreter.interpret(&statements);
     }
 }
 

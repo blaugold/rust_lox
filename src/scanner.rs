@@ -1,11 +1,9 @@
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{lox::ErrorCollector, token::LiteralValue};
 
 use super::token::{Token, TokenType};
 
 pub struct Scanner<'a> {
-    error_collector: Rc<RefCell<ErrorCollector>>,
+    error_collector: &'a mut ErrorCollector,
     source: &'a str,
     bytes: &'a [u8],
     line: usize,
@@ -15,7 +13,7 @@ pub struct Scanner<'a> {
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(error_collector: Rc<RefCell<ErrorCollector>>, source: &'a str) -> Scanner<'a> {
+    pub fn new(error_collector: &'a mut ErrorCollector, source: &'a str) -> Scanner<'a> {
         Scanner {
             error_collector,
             source,
@@ -101,9 +99,7 @@ impl<'a> Scanner<'a> {
                     self.identifier();
                 } else {
                     let message = format!("Unexpected character '{}'.", character);
-                    self.error_collector
-                        .borrow_mut()
-                        .scanner_error(self.line, &message);
+                    self.error_collector.scanner_error(self.line, &message);
                 }
             }
         }
@@ -130,7 +126,6 @@ impl<'a> Scanner<'a> {
 
         if !self.match_char('"') {
             self.error_collector
-                .borrow_mut()
                 .scanner_error(self.line, "Unterminated string.");
             return;
         }

@@ -11,15 +11,15 @@ pub struct Environment {
 }
 
 impl Environment {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Environment {
+        Environment {
             enclosing: None,
             values: HashMap::new(),
         }
     }
 
-    pub fn new_enclosed(enclosing: &Rc<RefCell<Environment>>) -> Self {
-        Self {
+    pub fn new_enclosed(enclosing: &Rc<RefCell<Environment>>) -> Environment {
+        Environment {
             enclosing: Some(enclosing.clone()),
             values: HashMap::new(),
         }
