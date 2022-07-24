@@ -72,7 +72,7 @@ impl Parser {
 
     fn declaration(&mut self) -> Result<Stmt, ParserError> {
         if self.match_token(TokenType::Fun) {
-            self.function_declaration("function")
+            Ok(Stmt::Function(self.function_declaration("function")?))
         } else if self.match_token(TokenType::Class) {
             self.class_declaration()
         } else if self.match_token(TokenType::Var) {
@@ -82,7 +82,7 @@ impl Parser {
         }
     }
 
-    fn function_declaration(&mut self, kind: &str) -> Result<Stmt, ParserError> {
+    fn function_declaration(&mut self, kind: &str) -> Result<Rc<FunctionStmt>, ParserError> {
         let name = self.consume(TokenType::Identifier, &format!("Expect {} name.", kind))?;
 
         self.consume(TokenType::LeftParen, "Expect '(' before parameters.")?;
@@ -110,11 +110,11 @@ impl Parser {
 
         let body = self.block()?;
 
-        Ok(Stmt::Function(Rc::new(FunctionStmt {
+        Ok(Rc::new(FunctionStmt {
             name,
             parameters,
             body,
-        })))
+        }))
     }
 
     fn class_declaration(&mut self) -> Result<Stmt, ParserError> {
@@ -122,7 +122,7 @@ impl Parser {
 
         self.consume(TokenType::LeftBrace, "Expect '{' after class name.")?;
 
-        let mut methods: Vec<Stmt> = vec![];
+        let mut methods: Vec<Rc<FunctionStmt>> = vec![];
         while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
             methods.push(self.function_declaration("method")?);
         }

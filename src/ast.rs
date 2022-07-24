@@ -64,7 +64,7 @@ pub struct FunctionStmt {
 
 pub struct ClassStmt {
     pub name: Token,
-    pub methods: Vec<Stmt>,
+    pub methods: Vec<Rc<FunctionStmt>>,
 }
 
 pub struct PrintStmt {

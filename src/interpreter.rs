@@ -129,7 +129,7 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
     fn visit_function_stmt(&mut self, stmt: &Rc<FunctionStmt>) -> Result<(), EarlyReturn> {
         let function = RuntimeValue::DeclaredFunction(Rc::new(DeclaredFunction {
             declaration: stmt.clone(),
-            environment: self.environment.clone(),
+            closure: self.environment.clone(),
         }));
         self.environment
             .borrow_mut()
@@ -141,8 +141,18 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
             .borrow_mut()
             .define(&&stmt.name.lexeme, RuntimeValue::Nil)?;
 
+        let mut methods: HashMap<String, Rc<DeclaredFunction>> = HashMap::new();
+        for method in &stmt.methods {
+            let function = Rc::new(DeclaredFunction {
+                declaration: method.clone(),
+                closure: self.environment.clone(),
+            });
+            methods.insert(method.name.lexeme.to_string(), function);
+        }
+
         let class = RuntimeValue::Class(Rc::new(Class {
             name: stmt.name.lexeme.to_string(),
+            methods,
         }));
 
         self.environment.borrow_mut().assign(&stmt.name, class)
@@ -563,7 +573,7 @@ impl BuiltinFunction {
 
 pub struct DeclaredFunction {
     declaration: Rc<FunctionStmt>,
-    environment: Rc<RefCell<Environment>>,
+    closure: Rc<RefCell<Environment>>,
 }
 
 impl Callable for Rc<DeclaredFunction> {
@@ -576,7 +586,7 @@ impl Callable for Rc<DeclaredFunction> {
         interpreter: &mut Interpreter,
         arguments: Vec<RuntimeValue>,
     ) -> Result<RuntimeValue, EarlyReturn> {
-        let mut environment = Environment::new_enclosed(&self.environment);
+        let mut environment = Environment::new_enclosed(&self.closure);
 
         for (parameter, argument) in self.declaration.parameters.iter().zip(arguments) {
             environment.define(&parameter.lexeme, argument)?;
@@ -609,6 +619,7 @@ impl fmt::Display for DeclaredFunction {
 
 pub struct Class {
     name: String,
+    methods: HashMap<String, Rc<DeclaredFunction>>,
 }
 
 impl Callable for Rc<Class> {
@@ -648,18 +659,30 @@ impl Instance {
     }
 
     fn get(&self, name: &Token) -> Result<RuntimeValue, EarlyReturn> {
-        match self.fields.get(&name.lexeme) {
-            Some(value) => Ok(value.clone()),
-            None => RuntimeError {
-                message: format!("Undefined property '{}'.", name.lexeme),
-                token: name.clone(),
-            }
-            .into(),
+        if let Some(value) = self.fields.get(&name.lexeme) {
+            return Ok(value.clone());
         }
+
+        if let Some(method) = self.find_method(&name.lexeme) {
+            return Ok(method.clone());
+        }
+
+        RuntimeError {
+            message: format!("Undefined property '{}'.", name.lexeme),
+            token: name.clone(),
+        }
+        .into()
     }
 
     fn set(&mut self, name: &str, value: RuntimeValue) {
         self.fields.insert(name.to_string(), value);
+    }
+
+    fn find_method(&self, name: &str) -> Option<RuntimeValue> {
+        self.class
+            .methods
+            .get(name)
+            .map(|method| RuntimeValue::DeclaredFunction(method.clone()))
     }
 }
 

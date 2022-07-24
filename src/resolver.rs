@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     ast::{
-        AssignExpr, BinaryExpr, BlockStmt, CallExpr, ConditionExpr, Expr, ExprVisitor,
+        AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr, ExprVisitor,
         ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
         ReturnStmt, SetExpr, Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
@@ -15,6 +15,7 @@ use crate::{
 enum FunctionType {
     None,
     Function,
+    Method,
 }
 
 pub struct Resolver {
@@ -140,9 +141,14 @@ impl StmtVisitor<()> for Resolver {
         self.resolve_function(stmt, FunctionType::Function);
     }
 
-    fn visit_class_stmt(&mut self, stmt: &Rc<crate::ast::ClassStmt>) -> () {
+    fn visit_class_stmt(&mut self, stmt: &Rc<ClassStmt>) -> () {
         self.declare(&stmt.name);
         self.define(&stmt.name);
+
+        for method in &stmt.methods {
+            let declaration = FunctionType::Method;
+            self.resolve_function(method, declaration);
+        }
     }
 
     fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> () {
