@@ -5,7 +5,7 @@ use crate::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr, ExprVisitor,
         ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
         ReturnStmt, SetExpr, Stmt, StmtVisitor, ThisExpr, UnaryExpr, VarStmt, VariableExpr,
-        WhileStmt,
+        VisitExpr, VisitStmt, WhileStmt,
     },
     interpreter::Interpreter,
     lox::ErrorCollector,
@@ -48,23 +48,23 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    pub fn resolve(mut self, statements: &Vec<Stmt>) {
+    pub fn resolve(mut self, statements: &Vec<Rc<Stmt>>) {
         for statement in statements {
             self.resolve_stmt(statement);
         }
     }
 
-    fn resolve_stmt(&mut self, statement: &Stmt) {
+    fn resolve_stmt(&mut self, statement: &Rc<Stmt>) {
         statement.accept(self);
     }
 
-    fn resolve_stmt_vec(&mut self, statements: &Vec<Stmt>) {
+    fn resolve_stmt_vec(&mut self, statements: &Vec<Rc<Stmt>>) {
         for statement in statements {
             self.resolve_stmt(statement);
         }
     }
 
-    fn resolve_expr(&mut self, expression: &Expr) {
+    fn resolve_expr(&mut self, expression: &Rc<Expr>) {
         expression.accept(self);
     }
 
@@ -111,7 +111,7 @@ impl<'a> Resolver<'a> {
         self.function_type = outer_function_type;
     }
 
-    fn resolve_local(&mut self, name: &Token, expr: Expr) {
+    fn resolve_local(&mut self, name: &Token, expr: &Rc<Expr>) {
         for (scope_index, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(&name.lexeme) {
                 self.interpreter.resolve_local(expr, scope_index);
@@ -122,17 +122,17 @@ impl<'a> Resolver<'a> {
 }
 
 impl<'a> StmtVisitor<()> for Resolver<'a> {
-    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt) -> () {
+    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt, _: &Rc<Stmt>) -> () {
         self.resolve_expr(&stmt.expression);
     }
 
-    fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> () {
+    fn visit_block_stmt(&mut self, stmt: &BlockStmt, _: &Rc<Stmt>) -> () {
         self.begin_scope();
         self.resolve_stmt_vec(&stmt.statements);
         self.end_scope();
     }
 
-    fn visit_var_stmt(&mut self, stmt: &VarStmt) -> () {
+    fn visit_var_stmt(&mut self, stmt: &VarStmt, _: &Rc<Stmt>) -> () {
         self.declare(&stmt.name);
 
         if let Some(initializer) = &stmt.initializer {
@@ -142,13 +142,13 @@ impl<'a> StmtVisitor<()> for Resolver<'a> {
         self.define(&stmt.name);
     }
 
-    fn visit_function_stmt(&mut self, stmt: &Rc<FunctionStmt>) -> () {
+    fn visit_function_stmt(&mut self, stmt: &FunctionStmt, _: &Rc<Stmt>) -> () {
         self.declare(&stmt.name);
         self.define(&stmt.name);
         self.resolve_function(stmt, FunctionType::Function);
     }
 
-    fn visit_class_stmt(&mut self, stmt: &Rc<ClassStmt>) -> () {
+    fn visit_class_stmt(&mut self, stmt: &ClassStmt, _: &Rc<Stmt>) -> () {
         let outer_class_type = self.class_type;
         self.class_type = ClassType::Class;
 
@@ -156,6 +156,8 @@ impl<'a> StmtVisitor<()> for Resolver<'a> {
         self.define(&stmt.name);
 
         for method in &stmt.methods {
+            let method = method.as_function();
+
             self.begin_scope();
             self.scopes
                 .last_mut()
@@ -174,11 +176,11 @@ impl<'a> StmtVisitor<()> for Resolver<'a> {
         self.class_type = outer_class_type;
     }
 
-    fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> () {
+    fn visit_print_stmt(&mut self, stmt: &PrintStmt, _: &Rc<Stmt>) -> () {
         self.resolve_expr(&stmt.expression);
     }
 
-    fn visit_if_stmt(&mut self, stmt: &IfStmt) -> () {
+    fn visit_if_stmt(&mut self, stmt: &IfStmt, _: &Rc<Stmt>) -> () {
         self.resolve_expr(&stmt.condition);
         self.resolve_stmt(&stmt.then_statement);
         if let Some(else_statement) = &stmt.else_statement {
@@ -186,19 +188,22 @@ impl<'a> StmtVisitor<()> for Resolver<'a> {
         }
     }
 
-    fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> () {
+    fn visit_while_stmt(&mut self, stmt: &WhileStmt, _: &Rc<Stmt>) -> () {
         self.resolve_expr(&stmt.condition);
         self.resolve_stmt(&stmt.body);
     }
 
-    fn visit_return_stmt(&mut self, stmt: &ReturnStmt) -> () {
+    fn visit_return_stmt(&mut self, stmt: &ReturnStmt, _: &Rc<Stmt>) -> () {
         match self.function_type {
             FunctionType::None => self
                 .error_collector
                 .resolver_error(&stmt.token, "Can't return from top level code."),
-            FunctionType::Initialize if stmt.value != None => self
-                .error_collector
-                .resolver_error(&stmt.token, "Can't return value from initializer."),
+            FunctionType::Initialize => {
+                if let Some(_) = stmt.value {
+                    self.error_collector
+                        .resolver_error(&stmt.token, "Can't return value from initializer.");
+                }
+            }
             _ => {}
         };
 
@@ -209,9 +214,9 @@ impl<'a> StmtVisitor<()> for Resolver<'a> {
 }
 
 impl<'a> ExprVisitor<()> for Resolver<'a> {
-    fn visit_literal_expr(&mut self, _: &LiteralExpr) -> () {}
+    fn visit_literal_expr(&mut self, _: &LiteralExpr, _: &Rc<Expr>) -> () {}
 
-    fn visit_variable_expr(&mut self, expr: &Rc<VariableExpr>) -> () {
+    fn visit_variable_expr(&mut self, expr: &VariableExpr, ptr: &Rc<Expr>) -> () {
         if let Some(scope) = self.scopes.last() {
             if let Some(defined) = scope.get(&expr.name.lexeme) {
                 if !defined {
@@ -223,33 +228,33 @@ impl<'a> ExprVisitor<()> for Resolver<'a> {
             }
         }
 
-        self.resolve_local(&expr.name, Expr::Variable(expr.clone()));
+        self.resolve_local(&expr.name, ptr);
     }
 
-    fn visit_assign_expr(&mut self, expr: &Rc<AssignExpr>) -> () {
+    fn visit_assign_expr(&mut self, expr: &AssignExpr, ptr: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.value);
-        self.resolve_local(&expr.name, Expr::Assign(expr.clone()))
+        self.resolve_local(&expr.name, ptr)
     }
 
-    fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> () {
+    fn visit_unary_expr(&mut self, expr: &UnaryExpr, _: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.expression);
     }
 
-    fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> () {
+    fn visit_binary_expr(&mut self, expr: &BinaryExpr, _: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.left);
         self.resolve_expr(&expr.right);
     }
 
-    fn visit_condition_expr(&mut self, expr: &ConditionExpr) -> () {
+    fn visit_condition_expr(&mut self, expr: &ConditionExpr, _: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.left);
         self.resolve_expr(&expr.right);
     }
 
-    fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> () {
+    fn visit_grouping_expr(&mut self, expr: &GroupingExpr, _: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.expression);
     }
 
-    fn visit_call_expr(&mut self, expr: &CallExpr) -> () {
+    fn visit_call_expr(&mut self, expr: &CallExpr, _: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.callee);
 
         for argument in &expr.arguments {
@@ -257,19 +262,19 @@ impl<'a> ExprVisitor<()> for Resolver<'a> {
         }
     }
 
-    fn visit_get_expr(&mut self, expr: &GetExpr) -> () {
+    fn visit_get_expr(&mut self, expr: &GetExpr, _: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.object);
     }
 
-    fn visit_set_expr(&mut self, expr: &SetExpr) -> () {
+    fn visit_set_expr(&mut self, expr: &SetExpr, _: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.object);
         self.resolve_expr(&expr.value);
     }
 
-    fn visit_this_expr(&mut self, expr: &Rc<ThisExpr>) -> () {
+    fn visit_this_expr(&mut self, expr: &ThisExpr, ptr: &Rc<Expr>) -> () {
         match self.class_type {
             ClassType::Class => {
-                self.resolve_local(&expr.token, Expr::This(expr.clone()));
+                self.resolve_local(&expr.token, ptr);
             }
             _ => {
                 self.error_collector

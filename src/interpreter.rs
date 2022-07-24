@@ -2,7 +2,9 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     error::Error,
-    fmt, mem,
+    fmt,
+    hash::Hash,
+    mem,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -12,7 +14,7 @@ use crate::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr, ExprVisitor,
         ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
         ReturnStmt, SetExpr, Stmt, StmtVisitor, ThisExpr, UnaryExpr, VarStmt, VariableExpr,
-        WhileStmt,
+        VisitExpr, VisitStmt, WhileStmt,
     },
     environment::Environment,
     lox::ErrorCollector,
@@ -23,7 +25,7 @@ pub struct Interpreter {
     error_collector: Rc<RefCell<ErrorCollector>>,
     globals: Rc<RefCell<Environment>>,
     environment: Rc<RefCell<Environment>>,
-    locals: HashMap<Expr, usize>,
+    locals: HashMap<ExprKey, usize>,
 }
 
 impl Interpreter {
@@ -41,7 +43,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: &Vec<Stmt>) {
+    pub fn interpret(&mut self, statements: &Vec<Rc<Stmt>>) {
         for statement in statements {
             if let Err(early_return) = self.execute(statement) {
                 if let EarlyReturn::Error(error) = early_return {
@@ -52,15 +54,15 @@ impl Interpreter {
         }
     }
 
-    pub fn resolve_local(&mut self, expr: Expr, scope_index: usize) {
-        self.locals.insert(expr, scope_index);
+    pub fn resolve_local(&mut self, expr: &Rc<Expr>, scope_index: usize) {
+        self.locals.insert(expr.into(), scope_index);
     }
 
-    fn execute(&mut self, stmt: &Stmt) -> Result<(), EarlyReturn> {
+    fn execute(&mut self, stmt: &Rc<Stmt>) -> Result<(), EarlyReturn> {
         stmt.accept(self)
     }
 
-    fn execute_optional(&mut self, stmt: &Option<Stmt>) -> Result<(), EarlyReturn> {
+    fn execute_optional(&mut self, stmt: &Option<Rc<Stmt>>) -> Result<(), EarlyReturn> {
         match &stmt {
             Some(stmt) => self.execute(stmt),
             None => Ok(()),
@@ -69,7 +71,7 @@ impl Interpreter {
 
     fn execute_block(
         &mut self,
-        statements: &Vec<Stmt>,
+        statements: &Vec<Rc<Stmt>>,
         environment: &Rc<RefCell<Environment>>,
     ) -> Result<(), EarlyReturn> {
         let enclosing = mem::replace(&mut self.environment, environment.clone());
@@ -88,19 +90,23 @@ impl Interpreter {
         result
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<RuntimeValue, EarlyReturn> {
+    fn evaluate(&mut self, expr: &Rc<Expr>) -> Result<RuntimeValue, EarlyReturn> {
         expr.accept(self)
     }
 
-    fn evaluate_optional(&mut self, expr: &Option<Expr>) -> Result<RuntimeValue, EarlyReturn> {
+    fn evaluate_optional(&mut self, expr: &Option<Rc<Expr>>) -> Result<RuntimeValue, EarlyReturn> {
         match expr {
             None => Ok(RuntimeValue::Nil),
             Some(expr) => self.evaluate(expr),
         }
     }
 
-    fn lookup_variable(&mut self, name: &Token, expr: &Expr) -> Result<RuntimeValue, EarlyReturn> {
-        if let Some(scope_index) = self.locals.get(expr) {
+    fn lookup_variable(
+        &mut self,
+        name: &Token,
+        expr: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
+        if let Some(scope_index) = self.locals.get(&expr.into()) {
             self.environment
                 .borrow_mut()
                 .get_at(&name.lexeme, *scope_index)
@@ -111,25 +117,33 @@ impl Interpreter {
 }
 
 impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
-    fn visit_expression_stmt(&mut self, stmt: &ExpressionStmt) -> Result<(), EarlyReturn> {
+    fn visit_expression_stmt(
+        &mut self,
+        stmt: &ExpressionStmt,
+        _: &Rc<Stmt>,
+    ) -> Result<(), EarlyReturn> {
         self.evaluate(&stmt.expression).map(|_| ())
     }
 
-    fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> Result<(), EarlyReturn> {
+    fn visit_block_stmt(&mut self, stmt: &BlockStmt, _: &Rc<Stmt>) -> Result<(), EarlyReturn> {
         let environment = Rc::new(RefCell::new(Environment::new_enclosed(&self.environment)));
         self.execute_block(&stmt.statements, &environment)
     }
 
-    fn visit_var_stmt(&mut self, stmt: &VarStmt) -> Result<(), EarlyReturn> {
+    fn visit_var_stmt(&mut self, stmt: &VarStmt, _: &Rc<Stmt>) -> Result<(), EarlyReturn> {
         let value = self.evaluate_optional(&stmt.initializer)?;
         self.environment
             .borrow_mut()
             .define(&stmt.name.lexeme, value)
     }
 
-    fn visit_function_stmt(&mut self, stmt: &Rc<FunctionStmt>) -> Result<(), EarlyReturn> {
+    fn visit_function_stmt(
+        &mut self,
+        stmt: &FunctionStmt,
+        ptr: &Rc<Stmt>,
+    ) -> Result<(), EarlyReturn> {
         let function = RuntimeValue::DeclaredFunction(Rc::new(DeclaredFunction {
-            declaration: stmt.clone(),
+            declaration: ptr.clone(),
             closure: self.environment.clone(),
             is_initializer: false,
         }));
@@ -138,19 +152,20 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
             .define(&stmt.name.lexeme, function)
     }
 
-    fn visit_class_stmt(&mut self, stmt: &Rc<ClassStmt>) -> Result<(), EarlyReturn> {
+    fn visit_class_stmt(&mut self, stmt: &ClassStmt, _: &Rc<Stmt>) -> Result<(), EarlyReturn> {
         self.environment
             .borrow_mut()
             .define(&&stmt.name.lexeme, RuntimeValue::Nil)?;
 
         let mut methods: HashMap<String, Rc<DeclaredFunction>> = HashMap::new();
         for method in &stmt.methods {
+            let name = &method.as_function().name.lexeme;
             let function = Rc::new(DeclaredFunction {
                 declaration: method.clone(),
                 closure: self.environment.clone(),
-                is_initializer: method.name.lexeme == "init",
+                is_initializer: name == "init",
             });
-            methods.insert(method.name.lexeme.to_string(), function);
+            methods.insert(name.clone(), function);
         }
 
         let class = RuntimeValue::Class(Rc::new(Class {
@@ -161,13 +176,13 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
         self.environment.borrow_mut().assign(&stmt.name, class)
     }
 
-    fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> Result<(), EarlyReturn> {
+    fn visit_print_stmt(&mut self, stmt: &PrintStmt, _: &Rc<Stmt>) -> Result<(), EarlyReturn> {
         let value = self.evaluate(&stmt.expression)?;
         println!("{}", value);
         Ok(())
     }
 
-    fn visit_if_stmt(&mut self, stmt: &IfStmt) -> Result<(), EarlyReturn> {
+    fn visit_if_stmt(&mut self, stmt: &IfStmt, _: &Rc<Stmt>) -> Result<(), EarlyReturn> {
         if self.evaluate(&stmt.condition)?.is_truthy() {
             self.execute(&stmt.then_statement)
         } else {
@@ -175,20 +190,24 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
         }
     }
 
-    fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> Result<(), EarlyReturn> {
+    fn visit_while_stmt(&mut self, stmt: &WhileStmt, _: &Rc<Stmt>) -> Result<(), EarlyReturn> {
         while self.evaluate(&stmt.condition)?.is_truthy() {
             self.execute(&stmt.body)?;
         }
         Ok(())
     }
 
-    fn visit_return_stmt(&mut self, stmt: &ReturnStmt) -> Result<(), EarlyReturn> {
+    fn visit_return_stmt(&mut self, stmt: &ReturnStmt, _: &Rc<Stmt>) -> Result<(), EarlyReturn> {
         self.evaluate_optional(&stmt.value)?.into()
     }
 }
 
 impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
-    fn visit_literal_expr(&mut self, expr: &LiteralExpr) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_literal_expr(
+        &mut self,
+        expr: &LiteralExpr,
+        _: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
         use LiteralValue::*;
         Ok(match &expr.value {
             Nil => RuntimeValue::Nil,
@@ -200,16 +219,21 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
 
     fn visit_variable_expr(
         &mut self,
-        expr: &Rc<VariableExpr>,
+        expr: &VariableExpr,
+        ptr: &Rc<Expr>,
     ) -> Result<RuntimeValue, EarlyReturn> {
-        self.lookup_variable(&expr.name, &Expr::Variable(expr.clone()))
+        self.lookup_variable(&expr.name, ptr)
     }
 
-    fn visit_assign_expr(&mut self, expr: &Rc<AssignExpr>) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_assign_expr(
+        &mut self,
+        expr: &AssignExpr,
+        ptr: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
         let value = self.evaluate(&expr.value)?;
         let result = value.clone();
 
-        if let Some(scope_index) = self.locals.get(&Expr::Assign(expr.clone())) {
+        if let Some(scope_index) = self.locals.get(&ptr.into()) {
             self.environment
                 .borrow_mut()
                 .assign_at(&expr.name.lexeme, *scope_index, value)?;
@@ -220,7 +244,11 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         Ok(result)
     }
 
-    fn visit_unary_expr(&mut self, expr: &UnaryExpr) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_unary_expr(
+        &mut self,
+        expr: &UnaryExpr,
+        _: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
         let operand = self.evaluate(&expr.expression)?;
         Ok(match expr.operator.token_type {
             TokenType::Bang => RuntimeValue::Bool(!operand.is_truthy()),
@@ -232,7 +260,11 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         })
     }
 
-    fn visit_binary_expr(&mut self, expr: &BinaryExpr) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_binary_expr(
+        &mut self,
+        expr: &BinaryExpr,
+        _: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
         let left = self.evaluate(&expr.left)?;
         let right = self.evaluate(&expr.right)?;
 
@@ -299,7 +331,11 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         })
     }
 
-    fn visit_condition_expr(&mut self, expr: &ConditionExpr) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_condition_expr(
+        &mut self,
+        expr: &ConditionExpr,
+        _: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
         let left = self.evaluate(&expr.left)?;
 
         Ok(RuntimeValue::Bool(match expr.operator.token_type {
@@ -321,11 +357,19 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         }))
     }
 
-    fn visit_grouping_expr(&mut self, expr: &GroupingExpr) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_grouping_expr(
+        &mut self,
+        expr: &GroupingExpr,
+        _: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
         self.evaluate(&expr.expression)
     }
 
-    fn visit_call_expr(&mut self, expr: &CallExpr) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_call_expr(
+        &mut self,
+        expr: &CallExpr,
+        _: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
         let callee = self.evaluate(&expr.callee)?;
 
         let callable: &dyn Callable = match &callee {
@@ -361,7 +405,11 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         callable.call(self, arguments)
     }
 
-    fn visit_get_expr(&mut self, expr: &GetExpr) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_get_expr(
+        &mut self,
+        expr: &GetExpr,
+        _: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
         let object = self.evaluate(&expr.object)?;
 
         match object {
@@ -374,7 +422,11 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         }
     }
 
-    fn visit_set_expr(&mut self, expr: &SetExpr) -> Result<RuntimeValue, EarlyReturn> {
+    fn visit_set_expr(
+        &mut self,
+        expr: &SetExpr,
+        _: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
         let object = self.evaluate(&expr.object)?;
 
         match object {
@@ -392,8 +444,12 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         }
     }
 
-    fn visit_this_expr(&mut self, expr: &Rc<ThisExpr>) -> Result<RuntimeValue, EarlyReturn> {
-        self.lookup_variable(&expr.token, &Expr::This(expr.clone()))
+    fn visit_this_expr(
+        &mut self,
+        expr: &ThisExpr,
+        ptr: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
+        self.lookup_variable(&expr.token, ptr)
     }
 }
 
@@ -579,7 +635,7 @@ impl BuiltinFunction {
 }
 
 pub struct DeclaredFunction {
-    declaration: Rc<FunctionStmt>,
+    declaration: Rc<Stmt>,
     closure: Rc<RefCell<Environment>>,
     is_initializer: bool,
 }
@@ -602,7 +658,7 @@ impl DeclaredFunction {
 
 impl Callable for Rc<DeclaredFunction> {
     fn arity(&self) -> u8 {
-        self.declaration.parameters.len() as u8
+        self.declaration.as_function().parameters.len() as u8
     }
 
     fn call(
@@ -611,13 +667,14 @@ impl Callable for Rc<DeclaredFunction> {
         arguments: Vec<RuntimeValue>,
     ) -> Result<RuntimeValue, EarlyReturn> {
         let mut environment = Environment::new_enclosed(&self.closure);
+        let function = &self.declaration.as_function();
 
-        for (parameter, argument) in self.declaration.parameters.iter().zip(arguments) {
+        for (parameter, argument) in function.parameters.iter().zip(arguments) {
             environment.define(&parameter.lexeme, argument)?;
         }
 
         if let Err(early_return) =
-            interpreter.execute_block(&self.declaration.body, &Rc::new(RefCell::new(environment)))
+            interpreter.execute_block(&function.body, &Rc::new(RefCell::new(environment)))
         {
             match early_return {
                 EarlyReturn::Return(value) => {
@@ -645,7 +702,7 @@ impl PartialEq for DeclaredFunction {
 
 impl fmt::Display for DeclaredFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<fun {}>", self.declaration.name.lexeme)
+        write!(f, "<fun {}>", self.declaration.as_function().name.lexeme)
     }
 }
 
@@ -741,5 +798,29 @@ impl PartialEq for Instance {
 impl fmt::Display for Instance {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<{} instance>", self.class.name)
+    }
+}
+
+struct ExprKey {
+    expr: Rc<Expr>,
+}
+
+impl Eq for ExprKey {}
+
+impl PartialEq for ExprKey {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.expr.as_ref(), other.expr.as_ref())
+    }
+}
+
+impl Hash for ExprKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::ptr::hash(self.expr.as_ref(), state);
+    }
+}
+
+impl From<&Rc<Expr>> for ExprKey {
+    fn from(expr: &Rc<Expr>) -> Self {
+        ExprKey { expr: expr.clone() }
     }
 }
