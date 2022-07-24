@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     ast::{
-        AssignExpr, BinaryExpr, BlockStmt, CallExpr, ConditionExpr, Expr, ExprVisitor,
+        AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr, ExprVisitor,
         ExpressionStmt, FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt,
         Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
@@ -134,6 +134,18 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
         self.environment
             .borrow_mut()
             .define(&stmt.name.lexeme, function)
+    }
+
+    fn visit_class_stmt(&mut self, stmt: &Rc<ClassStmt>) -> Result<(), EarlyReturn> {
+        self.environment
+            .borrow_mut()
+            .define(&&stmt.name.lexeme, RuntimeValue::Nil)?;
+
+        let class = RuntimeValue::Class(Rc::new(Class {
+            name: stmt.name.lexeme.to_string(),
+        }));
+
+        self.environment.borrow_mut().assign(&stmt.name, class)
     }
 
     fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> Result<(), EarlyReturn> {
@@ -303,9 +315,10 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
     fn visit_call_expr(&mut self, expr: &CallExpr) -> Result<RuntimeValue, EarlyReturn> {
         let callee = self.evaluate(&expr.callee)?;
 
-        let callable: &dyn LoxCallable = match &callee {
-            RuntimeValue::BuiltinFunction(function) => &**function,
-            RuntimeValue::DeclaredFunction(function) => &**function,
+        let callable: &dyn Callable = match &callee {
+            RuntimeValue::BuiltinFunction(function) => function,
+            RuntimeValue::DeclaredFunction(function) => function,
+            RuntimeValue::Class(function) => function,
             _ => {
                 return RuntimeError {
                     message: "Can only call functions and classes.".to_string(),
@@ -389,6 +402,8 @@ pub enum RuntimeValue {
     String(Rc<String>),
     BuiltinFunction(Rc<BuiltinFunction>),
     DeclaredFunction(Rc<DeclaredFunction>),
+    Class(Rc<Class>),
+    Instance(Rc<Instance>),
 }
 
 impl RuntimeValue {
@@ -414,6 +429,8 @@ impl fmt::Display for RuntimeValue {
             String(value) => write!(f, "{}", value),
             BuiltinFunction(value) => write!(f, "{}", value),
             DeclaredFunction(value) => write!(f, "{}", value),
+            Class(value) => write!(f, "{}", value),
+            Instance(value) => write!(f, "{}", value),
         }
     }
 }
@@ -448,7 +465,7 @@ fn check_numeric_operands(
     .into()
 }
 
-trait LoxCallable: fmt::Display {
+trait Callable: fmt::Display {
     fn arity(&self) -> u8;
 
     fn call(
@@ -464,7 +481,7 @@ pub struct BuiltinFunction {
     function: fn(arguments: Vec<RuntimeValue>) -> RuntimeValue,
 }
 
-impl LoxCallable for BuiltinFunction {
+impl Callable for Rc<BuiltinFunction> {
     fn arity(&self) -> u8 {
         self.arity
     }
@@ -518,7 +535,7 @@ pub struct DeclaredFunction {
     environment: Rc<RefCell<Environment>>,
 }
 
-impl LoxCallable for DeclaredFunction {
+impl Callable for Rc<DeclaredFunction> {
     fn arity(&self) -> u8 {
         self.declaration.parameters.len() as u8
     }
@@ -556,5 +573,50 @@ impl PartialEq for DeclaredFunction {
 impl fmt::Display for DeclaredFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<fun {}>", self.declaration.name.lexeme)
+    }
+}
+
+pub struct Class {
+    name: String,
+}
+
+impl Callable for Rc<Class> {
+    fn arity(&self) -> u8 {
+        0
+    }
+
+    fn call(&self, _: &mut Interpreter, _: Vec<RuntimeValue>) -> Result<RuntimeValue, EarlyReturn> {
+        let instance = Rc::new(Instance {
+            class: self.clone(),
+        });
+        Ok(RuntimeValue::Instance(instance))
+    }
+}
+
+impl PartialEq for Class {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl fmt::Display for Class {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<{}>", self.name)
+    }
+}
+
+pub struct Instance {
+    class: Rc<Class>,
+}
+
+impl PartialEq for Instance {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl fmt::Display for Instance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<{} instance>", self.class.name)
     }
 }

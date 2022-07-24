@@ -2,9 +2,9 @@ use std::{cell::RefCell, error::Error, fmt, rc::Rc};
 
 use crate::{
     ast::{
-        AssignExpr, BinaryExpr, BlockStmt, CallExpr, ConditionExpr, Expr, ExpressionStmt,
-        FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt, Stmt, UnaryExpr,
-        VarStmt, VariableExpr, WhileStmt,
+        AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr,
+        ExpressionStmt, FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt,
+        Stmt, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     lox::ErrorCollector,
     token::{LiteralValue, Token, TokenType},
@@ -73,6 +73,8 @@ impl Parser {
     fn declaration(&mut self) -> Result<Stmt, ParserError> {
         if self.match_token(TokenType::Fun) {
             self.function_declaration("function")
+        } else if self.match_token(TokenType::Class) {
+            self.class_declaration()
         } else if self.match_token(TokenType::Var) {
             self.var_declaration()
         } else {
@@ -113,6 +115,21 @@ impl Parser {
             parameters,
             body,
         })))
+    }
+
+    fn class_declaration(&mut self) -> Result<Stmt, ParserError> {
+        let name = self.consume(TokenType::Identifier, "Expect class name.")?;
+
+        self.consume(TokenType::LeftBrace, "Expect '{' after class name.")?;
+
+        let mut methods: Vec<Stmt> = vec![];
+        while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
+            methods.push(self.function_declaration("method")?);
+        }
+
+        self.consume(TokenType::RightBrace, "Expect '}' after class body.")?;
+
+        Ok(Stmt::Class(Rc::new(ClassStmt { name, methods })))
     }
 
     fn var_declaration(&mut self) -> Result<Stmt, ParserError> {

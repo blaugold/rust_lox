@@ -140,6 +140,11 @@ impl StmtVisitor<()> for Resolver {
         self.resolve_function(stmt, FunctionType::Function);
     }
 
+    fn visit_class_stmt(&mut self, stmt: &Rc<crate::ast::ClassStmt>) -> () {
+        self.declare(&stmt.name);
+        self.define(&stmt.name);
+    }
+
     fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> () {
         self.resolve_expr(&stmt.expression);
     }

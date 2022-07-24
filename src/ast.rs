@@ -7,6 +7,7 @@ pub enum Stmt {
     Block(Box<BlockStmt>),
     Var(Box<VarStmt>),
     Function(Rc<FunctionStmt>),
+    Class(Rc<ClassStmt>),
     Print(Box<PrintStmt>),
     If(Box<IfStmt>),
     While(Box<WhileStmt>),
@@ -18,6 +19,7 @@ pub trait StmtVisitor<T> {
     fn visit_block_stmt(&mut self, stmt: &BlockStmt) -> T;
     fn visit_var_stmt(&mut self, stmt: &VarStmt) -> T;
     fn visit_function_stmt(&mut self, stmt: &Rc<FunctionStmt>) -> T;
+    fn visit_class_stmt(&mut self, stmt: &Rc<ClassStmt>) -> T;
     fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> T;
     fn visit_if_stmt(&mut self, stmt: &IfStmt) -> T;
     fn visit_while_stmt(&mut self, stmt: &WhileStmt) -> T;
@@ -32,6 +34,7 @@ impl Stmt {
             Block(expr) => visitor.visit_block_stmt(expr),
             Var(expr) => visitor.visit_var_stmt(expr),
             Function(expr) => visitor.visit_function_stmt(expr),
+            Class(expr) => visitor.visit_class_stmt(expr),
             Print(expr) => visitor.visit_print_stmt(expr),
             If(expr) => visitor.visit_if_stmt(expr),
             While(expr) => visitor.visit_while_stmt(expr),
@@ -57,6 +60,11 @@ pub struct FunctionStmt {
     pub name: Token,
     pub parameters: Vec<Token>,
     pub body: Vec<Stmt>,
+}
+
+pub struct ClassStmt {
+    pub name: Token,
+    pub methods: Vec<Stmt>,
 }
 
 pub struct PrintStmt {
