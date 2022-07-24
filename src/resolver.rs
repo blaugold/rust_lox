@@ -16,6 +16,7 @@ use crate::{
 enum FunctionType {
     None,
     Function,
+    Initialize,
     Method,
 }
 
@@ -164,7 +165,10 @@ impl StmtVisitor<()> for Resolver {
                 .unwrap()
                 .insert("this".to_string(), true);
 
-            let declaration = FunctionType::Method;
+            let declaration = match method.name.lexeme == "init" {
+                true => FunctionType::Initialize,
+                false => FunctionType::Method,
+            };
             self.resolve_function(method, declaration);
 
             self.end_scope();
@@ -191,11 +195,17 @@ impl StmtVisitor<()> for Resolver {
     }
 
     fn visit_return_stmt(&mut self, stmt: &ReturnStmt) -> () {
-        if self.function_type == FunctionType::None {
-            self.error_collector
+        match self.function_type {
+            FunctionType::None => self
+                .error_collector
                 .borrow_mut()
-                .resolver_error(&stmt.token, "Can't return from top level code.");
-        }
+                .resolver_error(&stmt.token, "Can't return from top level code."),
+            FunctionType::Initialize if stmt.value != None => self
+                .error_collector
+                .borrow_mut()
+                .resolver_error(&stmt.token, "Can't return value from initializer."),
+            _ => {}
+        };
 
         if let Some(value) = &stmt.value {
             self.resolve_expr(value);

@@ -1,0 +1,12 @@
+
+class Person {
+    init() {
+        this.name = "Bob";
+    }
+
+    greet() {
+        print "Hello " + this.name + "!";
+    }
+}
+
+Person().greet();

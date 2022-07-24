@@ -1,8 +1,0 @@
-
-class Dog {
-    speak() {
-        print "Woof";
-    }
-}
-
-Dog().speak();

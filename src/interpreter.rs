@@ -101,7 +101,9 @@ impl Interpreter {
 
     fn lookup_variable(&mut self, name: &Token, expr: &Expr) -> Result<RuntimeValue, EarlyReturn> {
         if let Some(scope_index) = self.locals.get(expr) {
-            self.environment.borrow_mut().get_at(name, *scope_index)
+            self.environment
+                .borrow_mut()
+                .get_at(&name.lexeme, *scope_index)
         } else {
             self.globals.borrow().get(name)
         }
@@ -129,6 +131,7 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
         let function = RuntimeValue::DeclaredFunction(Rc::new(DeclaredFunction {
             declaration: stmt.clone(),
             closure: self.environment.clone(),
+            is_initializer: false,
         }));
         self.environment
             .borrow_mut()
@@ -145,6 +148,7 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
             let function = Rc::new(DeclaredFunction {
                 declaration: method.clone(),
                 closure: self.environment.clone(),
+                is_initializer: method.name.lexeme == "init",
             });
             methods.insert(method.name.lexeme.to_string(), function);
         }
@@ -208,7 +212,7 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         if let Some(scope_index) = self.locals.get(&Expr::Assign(expr.clone())) {
             self.environment
                 .borrow_mut()
-                .assign_at(&expr.name, *scope_index, value)?;
+                .assign_at(&expr.name.lexeme, *scope_index, value)?;
         } else {
             self.globals.borrow_mut().assign(&expr.name, value)?;
         }
@@ -577,20 +581,22 @@ impl BuiltinFunction {
 pub struct DeclaredFunction {
     declaration: Rc<FunctionStmt>,
     closure: Rc<RefCell<Environment>>,
+    is_initializer: bool,
 }
 
 impl DeclaredFunction {
-    fn bind(&self, instance: &Rc<RefCell<Instance>>) -> DeclaredFunction {
+    fn bind(&self, instance: &Rc<RefCell<Instance>>) -> Rc<DeclaredFunction> {
         let mut environment = Environment::new_enclosed(&self.closure);
 
         environment
             .define("this", RuntimeValue::Instance(instance.clone()))
             .unwrap();
 
-        DeclaredFunction {
+        Rc::new(DeclaredFunction {
             declaration: self.declaration.clone(),
             closure: Rc::new(RefCell::new(environment)),
-        }
+            is_initializer: self.is_initializer,
+        })
     }
 }
 
@@ -614,12 +620,20 @@ impl Callable for Rc<DeclaredFunction> {
             interpreter.execute_block(&self.declaration.body, &Rc::new(RefCell::new(environment)))
         {
             match early_return {
-                EarlyReturn::Return(value) => return Ok(value),
+                EarlyReturn::Return(value) => {
+                    return Ok(match self.is_initializer {
+                        true => self.closure.borrow_mut().get_at("this", 0)?,
+                        false => value,
+                    })
+                }
                 EarlyReturn::Error(error) => return error.into(),
             }
         }
 
-        Ok(RuntimeValue::Nil)
+        Ok(match self.is_initializer {
+            true => self.closure.borrow_mut().get_at("this", 0)?,
+            false => RuntimeValue::Nil,
+        })
     }
 }
 
@@ -640,14 +654,29 @@ pub struct Class {
     methods: HashMap<String, Rc<DeclaredFunction>>,
 }
 
+impl Class {
+    fn find_method(&self, name: &str) -> Option<Rc<DeclaredFunction>> {
+        self.methods.get(name).map(|method| method.clone())
+    }
+}
+
 impl Callable for Rc<Class> {
     fn arity(&self) -> u8 {
         0
     }
 
-    fn call(&self, _: &mut Interpreter, _: Vec<RuntimeValue>) -> Result<RuntimeValue, EarlyReturn> {
-        let instance = Instance::new(self.clone());
-        Ok(RuntimeValue::Instance(Rc::new(RefCell::new(instance))))
+    fn call(
+        &self,
+        interpreter: &mut Interpreter,
+        arguments: Vec<RuntimeValue>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
+        let instance = Rc::new(RefCell::new(Instance::new(self.clone())));
+
+        if let Some(init) = self.find_method("init") {
+            init.bind(&instance).call(interpreter, arguments)?;
+        }
+
+        Ok(RuntimeValue::Instance(instance))
     }
 }
 
@@ -679,10 +708,6 @@ impl Instance {
     fn set(&mut self, name: &str, value: RuntimeValue) {
         self.fields.insert(name.to_string(), value);
     }
-
-    fn find_method(&self, name: &str) -> Option<Rc<DeclaredFunction>> {
-        self.class.methods.get(name).map(|method| method.clone())
-    }
 }
 
 trait InstanceGet {
@@ -695,8 +720,8 @@ impl InstanceGet for Rc<RefCell<Instance>> {
             return Ok(value.clone());
         }
 
-        if let Some(method) = self.borrow().find_method(&name.lexeme) {
-            return Ok(RuntimeValue::DeclaredFunction(Rc::new(method.bind(self))));
+        if let Some(method) = self.borrow().class.find_method(&name.lexeme) {
+            return Ok(RuntimeValue::DeclaredFunction(method.bind(self)));
         }
 
         RuntimeError {

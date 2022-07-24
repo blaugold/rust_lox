@@ -32,12 +32,12 @@ impl Environment {
 
     pub fn assign_at(
         &mut self,
-        name: &Token,
+        name: &str,
         scope_index: usize,
         value: RuntimeValue,
     ) -> Result<(), EarlyReturn> {
         self.with_scope_at(scope_index, |scope| {
-            scope.insert(name.lexeme.to_string(), value);
+            scope.insert(name.to_string(), value);
         });
         Ok(())
     }
@@ -58,12 +58,8 @@ impl Environment {
         }
     }
 
-    pub fn get_at(
-        &mut self,
-        name: &Token,
-        scope_index: usize,
-    ) -> Result<RuntimeValue, EarlyReturn> {
-        self.with_scope_at(scope_index, |scope| Ok(scope[&name.lexeme].clone()))
+    pub fn get_at(&mut self, name: &str, scope_index: usize) -> Result<RuntimeValue, EarlyReturn> {
+        self.with_scope_at(scope_index, |scope| Ok(scope[name].clone()))
     }
 
     pub fn get(&self, name: &Token) -> Result<RuntimeValue, EarlyReturn> {
