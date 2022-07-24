@@ -3,8 +3,8 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ConditionExpr, Expr, ExprVisitor,
-        ExpressionStmt, FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt,
-        Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
+        ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
+        ReturnStmt, SetExpr, Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     interpreter::Interpreter,
     lox::ErrorCollector,
@@ -222,5 +222,14 @@ impl ExprVisitor<()> for Resolver {
         for argument in &expr.arguments {
             self.resolve_expr(argument);
         }
+    }
+
+    fn visit_get_expr(&mut self, expr: &GetExpr) -> () {
+        self.resolve_expr(&expr.object);
+    }
+
+    fn visit_set_expr(&mut self, expr: &SetExpr) -> () {
+        self.resolve_expr(&expr.object);
+        self.resolve_expr(&expr.value);
     }
 }

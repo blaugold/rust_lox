@@ -3,8 +3,8 @@ use std::{cell::RefCell, error::Error, fmt, rc::Rc};
 use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr,
-        ExpressionStmt, FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt,
-        Stmt, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
+        ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
+        ReturnStmt, SetExpr, Stmt, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     lox::ErrorCollector,
     token::{LiteralValue, Token, TokenType},
@@ -305,14 +305,25 @@ impl Parser {
         let expr = self.or_expr()?;
 
         if self.match_token(TokenType::Equal) {
-            let name = match expr {
-                Expr::Variable(expr) => expr.name.clone(),
-                _ => {
-                    return self.error(&self.peek().clone(), "Expect assignment to variable.");
-                }
-            };
             let value = self.assign_expr()?;
-            Ok(Expr::Assign(Rc::new(AssignExpr { name, value })))
+
+            match expr {
+                Expr::Variable(expr) => Ok(Expr::Assign(Rc::new(AssignExpr {
+                    name: expr.name.clone(),
+                    value,
+                }))),
+                Expr::Get(expr) => Ok(Expr::Set(Box::new(SetExpr {
+                    object: expr.object,
+                    name: expr.name.clone(),
+                    value,
+                }))),
+                _ => {
+                    return self.error(
+                        &self.peek().clone(),
+                        "Expect assignment to variable or property.",
+                    );
+                }
+            }
         } else {
             Ok(expr)
         }
@@ -450,6 +461,13 @@ impl Parser {
         loop {
             if self.match_token(TokenType::LeftParen) {
                 expression = self.finish_call_expr(expression)?;
+            } else if self.match_token(TokenType::Dot) {
+                let name =
+                    self.consume(TokenType::Identifier, "Expect property name after '.'.")?;
+                expression = Expr::Get(Box::new(GetExpr {
+                    object: expression,
+                    name,
+                }))
             } else {
                 break;
             }

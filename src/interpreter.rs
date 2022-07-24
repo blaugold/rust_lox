@@ -10,8 +10,8 @@ use std::{
 use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr, ExprVisitor,
-        ExpressionStmt, FunctionStmt, GroupingExpr, IfStmt, LiteralExpr, PrintStmt, ReturnStmt,
-        Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
+        ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
+        ReturnStmt, SetExpr, Stmt, StmtVisitor, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
     },
     environment::Environment,
     lox::ErrorCollector,
@@ -347,6 +347,37 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
 
         callable.call(self, arguments)
     }
+
+    fn visit_get_expr(&mut self, expr: &GetExpr) -> Result<RuntimeValue, EarlyReturn> {
+        let object = self.evaluate(&expr.object)?;
+
+        match object {
+            RuntimeValue::Instance(instance) => instance.borrow().get(&expr.name),
+            _ => RuntimeError {
+                message: "Only instances have properties.".to_string(),
+                token: expr.name.clone(),
+            }
+            .into(),
+        }
+    }
+
+    fn visit_set_expr(&mut self, expr: &SetExpr) -> Result<RuntimeValue, EarlyReturn> {
+        let object = self.evaluate(&expr.object)?;
+
+        match object {
+            RuntimeValue::Instance(instance) => {
+                let value = self.evaluate(&expr.value)?;
+                let result = value.clone();
+                instance.borrow_mut().set(&expr.name.lexeme, value);
+                Ok(result)
+            }
+            _ => RuntimeError {
+                message: "Only instances have properties.".to_string(),
+                token: expr.name.clone(),
+            }
+            .into(),
+        }
+    }
 }
 
 pub enum EarlyReturn {
@@ -403,7 +434,7 @@ pub enum RuntimeValue {
     BuiltinFunction(Rc<BuiltinFunction>),
     DeclaredFunction(Rc<DeclaredFunction>),
     Class(Rc<Class>),
-    Instance(Rc<Instance>),
+    Instance(Rc<RefCell<Instance>>),
 }
 
 impl RuntimeValue {
@@ -430,7 +461,7 @@ impl fmt::Display for RuntimeValue {
             BuiltinFunction(value) => write!(f, "{}", value),
             DeclaredFunction(value) => write!(f, "{}", value),
             Class(value) => write!(f, "{}", value),
-            Instance(value) => write!(f, "{}", value),
+            Instance(value) => write!(f, "{}", value.borrow()),
         }
     }
 }
@@ -586,10 +617,8 @@ impl Callable for Rc<Class> {
     }
 
     fn call(&self, _: &mut Interpreter, _: Vec<RuntimeValue>) -> Result<RuntimeValue, EarlyReturn> {
-        let instance = Rc::new(Instance {
-            class: self.clone(),
-        });
-        Ok(RuntimeValue::Instance(instance))
+        let instance = Instance::new(self.clone());
+        Ok(RuntimeValue::Instance(Rc::new(RefCell::new(instance))))
     }
 }
 
@@ -607,6 +636,31 @@ impl fmt::Display for Class {
 
 pub struct Instance {
     class: Rc<Class>,
+    fields: HashMap<String, RuntimeValue>,
+}
+
+impl Instance {
+    fn new(class: Rc<Class>) -> Instance {
+        Instance {
+            class,
+            fields: HashMap::new(),
+        }
+    }
+
+    fn get(&self, name: &Token) -> Result<RuntimeValue, EarlyReturn> {
+        match self.fields.get(&name.lexeme) {
+            Some(value) => Ok(value.clone()),
+            None => RuntimeError {
+                message: format!("Undefined property '{}'.", name.lexeme),
+                token: name.clone(),
+            }
+            .into(),
+        }
+    }
+
+    fn set(&mut self, name: &str, value: RuntimeValue) {
+        self.fields.insert(name.to_string(), value);
+    }
 }
 
 impl PartialEq for Instance {
