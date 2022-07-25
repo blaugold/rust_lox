@@ -8,6 +8,7 @@ use crate::{
     },
     lox::ErrorCollector,
     token::{LiteralValue, Token, TokenType},
+    utils::Late,
 };
 
 pub struct Parser<'a> {
@@ -311,6 +312,7 @@ impl<'a> Parser<'a> {
                 Expr::Variable(expr) => Ok(Rc::new(Expr::Assign(AssignExpr {
                     name: expr.name.clone(),
                     value,
+                    scope_index: Late::new(),
                 }))),
                 Expr::Get(expr) => Ok(Rc::new(Expr::Set(SetExpr {
                     object: expr.object.clone(),
@@ -525,10 +527,12 @@ impl<'a> Parser<'a> {
         } else if self.match_token(TokenType::Identifier) {
             Ok(Rc::new(Expr::Variable(VariableExpr {
                 name: self.previous(),
+                scope_index: Late::new(),
             })))
         } else if self.match_token(TokenType::This) {
             Ok(Rc::new(Expr::This(ThisExpr {
                 token: self.previous(),
+                scope_index: Late::new(),
             })))
         } else {
             self.error(&self.peek().clone(), "Expected expression.")

@@ -7,7 +7,6 @@ use crate::{
         ReturnStmt, SetExpr, Stmt, StmtVisitor, ThisExpr, UnaryExpr, VarStmt, VariableExpr,
         VisitExpr, VisitStmt, WhileStmt,
     },
-    interpreter::Interpreter,
     lox::ErrorCollector,
     token::Token,
 };
@@ -28,20 +27,15 @@ enum ClassType {
 
 pub struct Resolver<'a> {
     error_collector: &'a mut ErrorCollector,
-    interpreter: &'a mut Interpreter,
     scopes: Vec<HashMap<String, bool>>,
     function_type: FunctionType,
     class_type: ClassType,
 }
 
 impl<'a> Resolver<'a> {
-    pub fn new(
-        error_collector: &'a mut ErrorCollector,
-        interpreter: &'a mut Interpreter,
-    ) -> Resolver<'a> {
+    pub fn new(error_collector: &'a mut ErrorCollector) -> Resolver<'a> {
         Resolver {
             error_collector,
-            interpreter,
             scopes: vec![],
             function_type: FunctionType::None,
             class_type: ClassType::None,
@@ -111,13 +105,14 @@ impl<'a> Resolver<'a> {
         self.function_type = outer_function_type;
     }
 
-    fn resolve_local(&mut self, name: &Token, expr: &Rc<Expr>) {
+    fn resolve_local(&mut self, name: &Token) -> Option<usize> {
         for (scope_index, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(&name.lexeme) {
-                self.interpreter.resolve_local(expr, scope_index);
-                return;
+                return Some(scope_index);
             }
         }
+
+        None
     }
 }
 
@@ -216,7 +211,7 @@ impl<'a> StmtVisitor<()> for Resolver<'a> {
 impl<'a> ExprVisitor<()> for Resolver<'a> {
     fn visit_literal_expr(&mut self, _: &LiteralExpr, _: &Rc<Expr>) -> () {}
 
-    fn visit_variable_expr(&mut self, expr: &VariableExpr, ptr: &Rc<Expr>) -> () {
+    fn visit_variable_expr(&mut self, expr: &VariableExpr, _: &Rc<Expr>) -> () {
         if let Some(scope) = self.scopes.last() {
             if let Some(defined) = scope.get(&expr.name.lexeme) {
                 if !defined {
@@ -228,12 +223,12 @@ impl<'a> ExprVisitor<()> for Resolver<'a> {
             }
         }
 
-        self.resolve_local(&expr.name, ptr);
+        expr.scope_index.set(self.resolve_local(&expr.name));
     }
 
-    fn visit_assign_expr(&mut self, expr: &AssignExpr, ptr: &Rc<Expr>) -> () {
+    fn visit_assign_expr(&mut self, expr: &AssignExpr, _: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.value);
-        self.resolve_local(&expr.name, ptr)
+        expr.scope_index.set(self.resolve_local(&expr.name));
     }
 
     fn visit_unary_expr(&mut self, expr: &UnaryExpr, _: &Rc<Expr>) -> () {
@@ -271,10 +266,10 @@ impl<'a> ExprVisitor<()> for Resolver<'a> {
         self.resolve_expr(&expr.value);
     }
 
-    fn visit_this_expr(&mut self, expr: &ThisExpr, ptr: &Rc<Expr>) -> () {
+    fn visit_this_expr(&mut self, expr: &ThisExpr, _: &Rc<Expr>) -> () {
         match self.class_type {
             ClassType::Class => {
-                self.resolve_local(&expr.token, ptr);
+                expr.scope_index.set(self.resolve_local(&expr.token));
             }
             _ => {
                 self.error_collector

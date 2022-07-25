@@ -1,6 +1,9 @@
 use std::rc::Rc;
 
-use crate::token::{LiteralValue, Token};
+use crate::{
+    token::{LiteralValue, Token},
+    utils::Late,
+};
 
 pub enum Stmt {
     Expression(ExpressionStmt),
@@ -157,11 +160,13 @@ pub struct LiteralExpr {
 
 pub struct VariableExpr {
     pub name: Token,
+    pub scope_index: Late<Option<usize>>,
 }
 
 pub struct AssignExpr {
     pub name: Token,
     pub value: Rc<Expr>,
+    pub scope_index: Late<Option<usize>>,
 }
 
 pub struct UnaryExpr {
@@ -204,4 +209,5 @@ pub struct SetExpr {
 
 pub struct ThisExpr {
     pub token: Token,
+    pub scope_index: Late<Option<usize>>,
 }

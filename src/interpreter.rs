@@ -2,9 +2,7 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     error::Error,
-    fmt,
-    hash::Hash,
-    mem,
+    fmt, mem,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -25,7 +23,6 @@ pub struct Interpreter {
     error_collector: Rc<RefCell<ErrorCollector>>,
     globals: Rc<RefCell<Environment>>,
     environment: Rc<RefCell<Environment>>,
-    locals: HashMap<ExprKey, usize>,
 }
 
 impl Interpreter {
@@ -39,7 +36,6 @@ impl Interpreter {
             error_collector,
             globals: globals.clone(),
             environment: globals,
-            locals: HashMap::new(),
         }
     }
 
@@ -52,10 +48,6 @@ impl Interpreter {
                 }
             }
         }
-    }
-
-    pub fn resolve_local(&mut self, expr: &Rc<Expr>, scope_index: usize) {
-        self.locals.insert(expr.into(), scope_index);
     }
 
     fn execute(&mut self, stmt: &Rc<Stmt>) -> Result<(), EarlyReturn> {
@@ -104,9 +96,9 @@ impl Interpreter {
     fn lookup_variable(
         &mut self,
         name: &Token,
-        expr: &Rc<Expr>,
+        scope_index: &Option<usize>,
     ) -> Result<RuntimeValue, EarlyReturn> {
-        if let Some(scope_index) = self.locals.get(&expr.into()) {
+        if let Some(scope_index) = scope_index {
             self.environment
                 .borrow_mut()
                 .get_at(&name.lexeme, *scope_index)
@@ -220,20 +212,20 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
     fn visit_variable_expr(
         &mut self,
         expr: &VariableExpr,
-        ptr: &Rc<Expr>,
+        _: &Rc<Expr>,
     ) -> Result<RuntimeValue, EarlyReturn> {
-        self.lookup_variable(&expr.name, ptr)
+        self.lookup_variable(&expr.name, expr.scope_index.get().unwrap())
     }
 
     fn visit_assign_expr(
         &mut self,
         expr: &AssignExpr,
-        ptr: &Rc<Expr>,
+        _: &Rc<Expr>,
     ) -> Result<RuntimeValue, EarlyReturn> {
         let value = self.evaluate(&expr.value)?;
         let result = value.clone();
 
-        if let Some(scope_index) = self.locals.get(&ptr.into()) {
+        if let Some(scope_index) = expr.scope_index.get().unwrap() {
             self.environment
                 .borrow_mut()
                 .assign_at(&expr.name.lexeme, *scope_index, value)?;
@@ -447,9 +439,9 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
     fn visit_this_expr(
         &mut self,
         expr: &ThisExpr,
-        ptr: &Rc<Expr>,
+        _: &Rc<Expr>,
     ) -> Result<RuntimeValue, EarlyReturn> {
-        self.lookup_variable(&expr.token, ptr)
+        self.lookup_variable(&expr.token, expr.scope_index.get().unwrap())
     }
 }
 
@@ -798,29 +790,5 @@ impl PartialEq for Instance {
 impl fmt::Display for Instance {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<{} instance>", self.class.name)
-    }
-}
-
-struct ExprKey {
-    expr: Rc<Expr>,
-}
-
-impl Eq for ExprKey {}
-
-impl PartialEq for ExprKey {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.expr.as_ref(), other.expr.as_ref())
-    }
-}
-
-impl Hash for ExprKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::ptr::hash(self.expr.as_ref(), state);
-    }
-}
-
-impl From<&Rc<Expr>> for ExprKey {
-    fn from(expr: &Rc<Expr>) -> Self {
-        ExprKey { expr: expr.clone() }
     }
 }

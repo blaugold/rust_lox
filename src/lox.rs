@@ -89,7 +89,7 @@ impl Lox {
             return;
         }
 
-        let resolver = Resolver::new(&mut error_collector, &mut self.interpreter);
+        let resolver = Resolver::new(&mut error_collector);
         resolver.resolve(&statements);
 
         if error_collector.had_error {
