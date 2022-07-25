@@ -25,21 +25,14 @@ impl Environment {
         }
     }
 
-    pub fn define(&mut self, name: &str, value: RuntimeValue) -> Result<(), EarlyReturn> {
+    pub fn define(&mut self, name: &str, value: RuntimeValue) {
         self.values.insert(name.to_string(), value);
-        Ok(())
     }
 
-    pub fn assign_at(
-        &mut self,
-        name: &str,
-        scope_index: usize,
-        value: RuntimeValue,
-    ) -> Result<(), EarlyReturn> {
+    pub fn assign_at(&mut self, name: &str, scope_index: usize, value: RuntimeValue) {
         self.with_scope_at(scope_index, |scope| {
             scope.insert(name.to_string(), value);
         });
-        Ok(())
     }
 
     pub fn assign(&mut self, name: &Token, value: RuntimeValue) -> Result<(), EarlyReturn> {
@@ -58,8 +51,8 @@ impl Environment {
         }
     }
 
-    pub fn get_at(&mut self, name: &str, scope_index: usize) -> Result<RuntimeValue, EarlyReturn> {
-        self.with_scope_at(scope_index, |scope| Ok(scope[name].clone()))
+    pub fn get_at(&mut self, name: &str, scope_index: usize) -> RuntimeValue {
+        self.with_scope_at(scope_index, |scope| scope[name].clone())
     }
 
     pub fn get(&self, name: &Token) -> Result<RuntimeValue, EarlyReturn> {

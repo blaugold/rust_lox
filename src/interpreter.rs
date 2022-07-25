@@ -11,8 +11,8 @@ use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr, ExprVisitor,
         ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
-        ReturnStmt, SetExpr, Stmt, StmtVisitor, ThisExpr, UnaryExpr, VarStmt, VariableExpr,
-        VisitExpr, VisitStmt, WhileStmt,
+        ReturnStmt, SetExpr, Stmt, StmtVisitor, SuperExpr, ThisExpr, UnaryExpr, VarStmt,
+        VariableExpr, VisitExpr, VisitStmt, WhileStmt,
     },
     environment::Environment,
     lox::ErrorCollector,
@@ -99,9 +99,10 @@ impl Interpreter {
         scope_index: &Option<usize>,
     ) -> Result<RuntimeValue, EarlyReturn> {
         if let Some(scope_index) = scope_index {
-            self.environment
+            Ok(self
+                .environment
                 .borrow_mut()
-                .get_at(&name.lexeme, *scope_index)
+                .get_at(&name.lexeme, *scope_index))
         } else {
             self.globals.borrow().get(name)
         }
@@ -126,7 +127,8 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
         let value = self.evaluate_optional(&stmt.initializer)?;
         self.environment
             .borrow_mut()
-            .define(&stmt.name.lexeme, value)
+            .define(&stmt.name.lexeme, value);
+        Ok(())
     }
 
     fn visit_function_stmt(
@@ -141,20 +143,42 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
         }));
         self.environment
             .borrow_mut()
-            .define(&stmt.name.lexeme, function)
+            .define(&stmt.name.lexeme, function);
+        Ok(())
     }
 
     fn visit_class_stmt(&mut self, stmt: &ClassStmt, _: &Rc<Stmt>) -> Result<(), EarlyReturn> {
         self.environment
             .borrow_mut()
-            .define(&&stmt.name.lexeme, RuntimeValue::Nil)?;
+            .define(&&stmt.name.lexeme, RuntimeValue::Nil);
+
+        let mut method_environment = self.environment.clone();
+        let mut super_class = None;
+
+        if let Some(super_class_expr) = &stmt.super_class {
+            match self.evaluate(super_class_expr)? {
+                RuntimeValue::Class(class) => {
+                    let mut environment = Environment::new_enclosed(&self.environment);
+                    environment.define("super", RuntimeValue::Class(class.clone()));
+                    method_environment = Rc::new(RefCell::new(environment));
+                    super_class = Some(class);
+                }
+                _ => {
+                    return RuntimeError {
+                        message: "Super class must be a class".to_string(),
+                        token: super_class_expr.as_variable().name.clone(),
+                    }
+                    .into()
+                }
+            }
+        }
 
         let mut methods: HashMap<String, Rc<DeclaredFunction>> = HashMap::new();
         for method in &stmt.methods {
             let name = &method.as_function().name.lexeme;
             let function = Rc::new(DeclaredFunction {
                 declaration: method.clone(),
-                closure: self.environment.clone(),
+                closure: method_environment.clone(),
                 is_initializer: name == "init",
             });
             methods.insert(name.clone(), function);
@@ -162,6 +186,7 @@ impl StmtVisitor<Result<(), EarlyReturn>> for Interpreter {
 
         let class = RuntimeValue::Class(Rc::new(Class {
             name: stmt.name.lexeme.to_string(),
+            super_class,
             methods,
         }));
 
@@ -228,7 +253,7 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
         if let Some(scope_index) = expr.scope_index.get().unwrap() {
             self.environment
                 .borrow_mut()
-                .assign_at(&expr.name.lexeme, *scope_index, value)?;
+                .assign_at(&expr.name.lexeme, *scope_index, value);
         } else {
             self.globals.borrow_mut().assign(&expr.name, value)?;
         }
@@ -443,6 +468,32 @@ impl ExprVisitor<Result<RuntimeValue, EarlyReturn>> for Interpreter {
     ) -> Result<RuntimeValue, EarlyReturn> {
         self.lookup_variable(&expr.token, expr.scope_index.get().unwrap())
     }
+
+    fn visit_super_expr(
+        &mut self,
+        expr: &SuperExpr,
+        _: &Rc<Expr>,
+    ) -> Result<RuntimeValue, EarlyReturn> {
+        let mut environment = self.environment.borrow_mut();
+        let scope_index = expr.scope_index.get().unwrap().unwrap();
+        let super_class = environment
+            .get_at(&expr.keyword.lexeme, scope_index)
+            .unwrap_class();
+
+        match super_class.find_method(&expr.method.lexeme) {
+            Some(method) => {
+                let instance = environment
+                    .get_at("this", scope_index - 1)
+                    .unwrap_instance();
+                Ok(RuntimeValue::DeclaredFunction(method.bind(&instance)))
+            }
+            None => RuntimeError {
+                message: format!("Undefined property '{}'.", expr.method.lexeme),
+                token: expr.method.clone(),
+            }
+            .into(),
+        }
+    }
 }
 
 pub enum EarlyReturn {
@@ -503,6 +554,20 @@ pub enum RuntimeValue {
 }
 
 impl RuntimeValue {
+    fn unwrap_class(self) -> Rc<Class> {
+        match self {
+            RuntimeValue::Class(value) => value,
+            _ => panic!(),
+        }
+    }
+
+    fn unwrap_instance(self) -> Rc<RefCell<Instance>> {
+        match self {
+            RuntimeValue::Instance(value) => value,
+            _ => panic!(),
+        }
+    }
+
     fn is_truthy(&self) -> bool {
         match self {
             RuntimeValue::Bool(value) => *value,
@@ -620,9 +685,7 @@ impl BuiltinFunction {
     }
 
     fn add_to_environment(self, environment: &mut Environment) {
-        environment
-            .define(self.name, RuntimeValue::BuiltinFunction(Rc::new(self)))
-            .unwrap();
+        environment.define(self.name, RuntimeValue::BuiltinFunction(Rc::new(self)));
     }
 }
 
@@ -636,9 +699,7 @@ impl DeclaredFunction {
     fn bind(&self, instance: &Rc<RefCell<Instance>>) -> Rc<DeclaredFunction> {
         let mut environment = Environment::new_enclosed(&self.closure);
 
-        environment
-            .define("this", RuntimeValue::Instance(instance.clone()))
-            .unwrap();
+        environment.define("this", RuntimeValue::Instance(instance.clone()));
 
         Rc::new(DeclaredFunction {
             declaration: self.declaration.clone(),
@@ -662,7 +723,7 @@ impl Callable for Rc<DeclaredFunction> {
         let function = &self.declaration.as_function();
 
         for (parameter, argument) in function.parameters.iter().zip(arguments) {
-            environment.define(&parameter.lexeme, argument)?;
+            environment.define(&parameter.lexeme, argument);
         }
 
         if let Err(early_return) =
@@ -671,7 +732,7 @@ impl Callable for Rc<DeclaredFunction> {
             match early_return {
                 EarlyReturn::Return(value) => {
                     return Ok(match self.is_initializer {
-                        true => self.closure.borrow_mut().get_at("this", 0)?,
+                        true => self.closure.borrow_mut().get_at("this", 0),
                         false => value,
                     })
                 }
@@ -680,7 +741,7 @@ impl Callable for Rc<DeclaredFunction> {
         }
 
         Ok(match self.is_initializer {
-            true => self.closure.borrow_mut().get_at("this", 0)?,
+            true => self.closure.borrow_mut().get_at("this", 0),
             false => RuntimeValue::Nil,
         })
     }
@@ -700,18 +761,28 @@ impl fmt::Display for DeclaredFunction {
 
 pub struct Class {
     name: String,
+    super_class: Option<Rc<Class>>,
     methods: HashMap<String, Rc<DeclaredFunction>>,
 }
 
 impl Class {
     fn find_method(&self, name: &str) -> Option<Rc<DeclaredFunction>> {
-        self.methods.get(name).map(|method| method.clone())
+        if let x @ Some(_) = self.methods.get(name).map(|method| method.clone()) {
+            return x;
+        };
+
+        self.super_class
+            .as_ref()
+            .map(|super_class| super_class.find_method(name))
+            .flatten()
     }
 }
 
 impl Callable for Rc<Class> {
     fn arity(&self) -> u8 {
-        0
+        self.find_method("init")
+            .map(|init| init.arity())
+            .unwrap_or(0)
     }
 
     fn call(

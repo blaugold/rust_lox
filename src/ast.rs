@@ -80,6 +80,7 @@ pub struct FunctionStmt {
 
 pub struct ClassStmt {
     pub name: Token,
+    pub super_class: Option<Rc<Expr>>,
     pub methods: Vec<Rc<Stmt>>,
 }
 
@@ -115,6 +116,16 @@ pub enum Expr {
     Get(GetExpr),
     Set(SetExpr),
     This(ThisExpr),
+    Super(SuperExpr),
+}
+
+impl Expr {
+    pub fn as_variable(&self) -> &VariableExpr {
+        match self {
+            Expr::Variable(expr) => expr,
+            _ => panic!(),
+        }
+    }
 }
 
 pub trait VisitExpr {
@@ -133,6 +144,7 @@ pub trait ExprVisitor<T> {
     fn visit_get_expr(&mut self, expr: &GetExpr, ptr: &Rc<Expr>) -> T;
     fn visit_set_expr(&mut self, expr: &SetExpr, ptr: &Rc<Expr>) -> T;
     fn visit_this_expr(&mut self, expr: &ThisExpr, ptr: &Rc<Expr>) -> T;
+    fn visit_super_expr(&mut self, expr: &SuperExpr, ptr: &Rc<Expr>) -> T;
 }
 
 impl VisitExpr for Rc<Expr> {
@@ -150,6 +162,7 @@ impl VisitExpr for Rc<Expr> {
             Get(expr) => visitor.visit_get_expr(expr, self),
             Set(expr) => visitor.visit_set_expr(expr, self),
             This(expr) => visitor.visit_this_expr(expr, self),
+            Super(expr) => visitor.visit_super_expr(expr, self),
         }
     }
 }
@@ -209,5 +222,11 @@ pub struct SetExpr {
 
 pub struct ThisExpr {
     pub token: Token,
+    pub scope_index: Late<Option<usize>>,
+}
+
+pub struct SuperExpr {
+    pub keyword: Token,
+    pub method: Token,
     pub scope_index: Late<Option<usize>>,
 }

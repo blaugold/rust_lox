@@ -4,7 +4,8 @@ use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr,
         ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
-        ReturnStmt, SetExpr, Stmt, ThisExpr, UnaryExpr, VarStmt, VariableExpr, WhileStmt,
+        ReturnStmt, SetExpr, Stmt, SuperExpr, ThisExpr, UnaryExpr, VarStmt, VariableExpr,
+        WhileStmt,
     },
     lox::ErrorCollector,
     token::{LiteralValue, Token, TokenType},
@@ -121,6 +122,15 @@ impl<'a> Parser<'a> {
     fn class_declaration(&mut self) -> Result<Rc<Stmt>, ParserError> {
         let name = self.consume(TokenType::Identifier, "Expect class name.")?;
 
+        let mut super_class = None;
+        if self.match_token(TokenType::Less) {
+            let name = self.consume(TokenType::Identifier, "Expect super class name.")?;
+            super_class = Some(Rc::new(Expr::Variable(VariableExpr {
+                name,
+                scope_index: Late::new(),
+            })));
+        }
+
         self.consume(TokenType::LeftBrace, "Expect '{' after class name.")?;
 
         let mut methods: Vec<Rc<Stmt>> = vec![];
@@ -130,7 +140,11 @@ impl<'a> Parser<'a> {
 
         self.consume(TokenType::RightBrace, "Expect '}' after class body.")?;
 
-        Ok(Rc::new(Stmt::Class(ClassStmt { name, methods })))
+        Ok(Rc::new(Stmt::Class(ClassStmt {
+            name,
+            super_class,
+            methods,
+        })))
     }
 
     fn var_declaration(&mut self) -> Result<Rc<Stmt>, ParserError> {
@@ -532,6 +546,18 @@ impl<'a> Parser<'a> {
         } else if self.match_token(TokenType::This) {
             Ok(Rc::new(Expr::This(ThisExpr {
                 token: self.previous(),
+                scope_index: Late::new(),
+            })))
+        } else if self.match_token(TokenType::Super) {
+            let keyword = self.previous();
+
+            self.consume(TokenType::Dot, "Expect '.' after super.")?;
+
+            let method = self.consume(TokenType::Identifier, "Expect super method.")?;
+
+            Ok(Rc::new(Expr::Super(SuperExpr {
+                keyword,
+                method,
                 scope_index: Late::new(),
             })))
         } else {

@@ -10,3 +10,17 @@ class Person {
 }
 
 Person().greet();
+
+class Animal {
+    talk() {
+        print this.noise;
+    }
+}
+
+class Dog < Animal {
+    init() {
+        this.noise = "Woof";
+    }
+}
+
+Dog().talk();

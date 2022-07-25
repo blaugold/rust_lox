@@ -1,11 +1,11 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{borrow::BorrowMut, collections::HashMap, rc::Rc};
 
 use crate::{
     ast::{
         AssignExpr, BinaryExpr, BlockStmt, CallExpr, ClassStmt, ConditionExpr, Expr, ExprVisitor,
         ExpressionStmt, FunctionStmt, GetExpr, GroupingExpr, IfStmt, LiteralExpr, PrintStmt,
-        ReturnStmt, SetExpr, Stmt, StmtVisitor, ThisExpr, UnaryExpr, VarStmt, VariableExpr,
-        VisitExpr, VisitStmt, WhileStmt,
+        ReturnStmt, SetExpr, Stmt, StmtVisitor, SuperExpr, ThisExpr, UnaryExpr, VarStmt,
+        VariableExpr, VisitExpr, VisitStmt, WhileStmt,
     },
     lox::ErrorCollector,
     token::Token,
@@ -23,6 +23,7 @@ enum FunctionType {
 enum ClassType {
     None,
     Class,
+    SubClass,
 }
 
 pub struct Resolver<'a> {
@@ -105,7 +106,7 @@ impl<'a> Resolver<'a> {
         self.function_type = outer_function_type;
     }
 
-    fn resolve_local(&mut self, name: &Token) -> Option<usize> {
+    fn resolve_local_scope_index(&mut self, name: &Token) -> Option<usize> {
         for (scope_index, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(&name.lexeme) {
                 return Some(scope_index);
@@ -150,6 +151,24 @@ impl<'a> StmtVisitor<()> for Resolver<'a> {
         self.declare(&stmt.name);
         self.define(&stmt.name);
 
+        if let Some(super_class_ptr) = &stmt.super_class {
+            self.class_type = ClassType::SubClass;
+
+            let super_class = &super_class_ptr.as_variable();
+            if &stmt.name.lexeme == &super_class.name.lexeme {
+                self.error_collector
+                    .resolver_error(&super_class.name, "Class cannot extend itself.");
+            }
+
+            self.resolve_expr(super_class_ptr);
+
+            self.begin_scope();
+            self.scopes
+                .last_mut()
+                .unwrap()
+                .insert("super".to_string(), true);
+        }
+
         for method in &stmt.methods {
             let method = method.as_function();
 
@@ -165,6 +184,10 @@ impl<'a> StmtVisitor<()> for Resolver<'a> {
             };
             self.resolve_function(method, declaration);
 
+            self.end_scope();
+        }
+
+        if let Some(_) = &stmt.super_class {
             self.end_scope();
         }
 
@@ -223,12 +246,14 @@ impl<'a> ExprVisitor<()> for Resolver<'a> {
             }
         }
 
-        expr.scope_index.set(self.resolve_local(&expr.name));
+        expr.scope_index
+            .set(self.resolve_local_scope_index(&expr.name));
     }
 
     fn visit_assign_expr(&mut self, expr: &AssignExpr, _: &Rc<Expr>) -> () {
         self.resolve_expr(&expr.value);
-        expr.scope_index.set(self.resolve_local(&expr.name));
+        expr.scope_index
+            .set(self.resolve_local_scope_index(&expr.name));
     }
 
     fn visit_unary_expr(&mut self, expr: &UnaryExpr, _: &Rc<Expr>) -> () {
@@ -268,13 +293,31 @@ impl<'a> ExprVisitor<()> for Resolver<'a> {
 
     fn visit_this_expr(&mut self, expr: &ThisExpr, _: &Rc<Expr>) -> () {
         match self.class_type {
-            ClassType::Class => {
-                expr.scope_index.set(self.resolve_local(&expr.token));
+            ClassType::Class | ClassType::SubClass => {
+                expr.scope_index
+                    .set(self.resolve_local_scope_index(&expr.token));
             }
-            _ => {
+            ClassType::None => {
                 self.error_collector
                     .resolver_error(&expr.token, "Can't use 'this' outside of a class.");
             }
         }
+    }
+
+    fn visit_super_expr(&mut self, expr: &SuperExpr, _: &Rc<Expr>) -> () {
+        match self.class_type {
+            ClassType::None => self
+                .error_collector
+                .borrow_mut()
+                .resolver_error(&expr.keyword, "Cannot use super outside of a class."),
+            ClassType::Class => self.error_collector.borrow_mut().resolver_error(
+                &expr.keyword,
+                "Cannot use super in a class that is not a sub class.",
+            ),
+            ClassType::SubClass => {}
+        };
+
+        expr.scope_index
+            .set(self.resolve_local_scope_index(&expr.keyword));
     }
 }
