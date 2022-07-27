@@ -1,4 +1,3 @@
-
 #[derive(Clone, Copy)]
 pub struct Value(pub f64);
 

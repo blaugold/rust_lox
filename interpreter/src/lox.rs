@@ -37,7 +37,7 @@ impl Lox {
             0 => self.run_prompt(),
             1 => self.run_file(&args[0]),
             _ => {
-                print!("Usage: rust_lox [<file>]");
+                print!("Usage: lox [<file>]");
                 exit(1);
             }
         }

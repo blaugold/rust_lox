@@ -2,6 +2,7 @@ use std::slice;
 
 use crate::{
     chunk::{Chunk, Op},
+    compiler::Compiler,
     debug::DEBUG_TRACE_EXECUTION,
     value::Value,
 };
@@ -15,20 +16,21 @@ pub enum InterpretResult {
 const INITIAL_STACK_CAPACITY: usize = 256;
 
 pub struct VM {
+    compiler: Compiler,
     stack: Vec<Value>,
 }
 
 impl VM {
     pub fn new() -> VM {
         VM {
+            compiler: Compiler::new(),
             stack: Vec::with_capacity(INITIAL_STACK_CAPACITY),
         }
     }
 
-    pub fn interpret(&mut self, chunk: &Chunk) -> InterpretResult {
-        self.stack.clear();
-
-        Runner::new(&mut self.stack, chunk).run()
+    pub fn interpret(&mut self, source: &str) -> InterpretResult {
+        self.compiler.compile(source);
+        InterpretResult::Ok
     }
 }
 
