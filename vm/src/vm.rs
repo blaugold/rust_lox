@@ -16,21 +16,25 @@ pub enum InterpretResult {
 const INITIAL_STACK_CAPACITY: usize = 256;
 
 pub struct VM {
-    compiler: Compiler,
     stack: Vec<Value>,
 }
 
 impl VM {
     pub fn new() -> VM {
         VM {
-            compiler: Compiler::new(),
             stack: Vec::with_capacity(INITIAL_STACK_CAPACITY),
         }
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
-        self.compiler.compile(source);
-        InterpretResult::Ok
+        let mut chunk = Chunk::new();
+        let mut compiler = Compiler::new(source, &mut chunk);
+
+        if !compiler.compile() {
+            return InterpretResult::CompileError;
+        }
+
+        Runner::new(&mut self.stack, &chunk).run()
     }
 }
 
@@ -50,6 +54,10 @@ impl<'a> Runner<'a> {
     }
 
     fn run(&mut self) -> InterpretResult {
+        if DEBUG_TRACE_EXECUTION {
+            println!("!! Begin Execution !!")
+        }
+
         loop {
             if DEBUG_TRACE_EXECUTION {
                 print!(" ");
@@ -80,6 +88,9 @@ impl<'a> Runner<'a> {
                 Op::Return => {
                     self.pop().print();
                     println!();
+                    if DEBUG_TRACE_EXECUTION {
+                        println!("!! End Execution !!")
+                    }
                     return InterpretResult::Ok;
                 }
             }

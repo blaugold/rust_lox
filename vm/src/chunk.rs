@@ -64,10 +64,6 @@ impl Chunk {
         self.lines.elements()
     }
 
-    pub fn write_op(&mut self, op_code: Op, line: usize) {
-        self.write(op_code.into(), line);
-    }
-
     pub fn write(&mut self, value: u8, line: usize) {
         self.code.add(value);
         self.lines.add(line);

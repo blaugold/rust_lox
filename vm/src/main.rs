@@ -1,9 +1,3 @@
-use std::{io::stderr, process::exit};
-
-use chunk::{Chunk, Op};
-use value::Value;
-use vm::VM;
-
 mod array;
 mod chunk;
 mod compiler;

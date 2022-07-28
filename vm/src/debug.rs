@@ -1,5 +1,6 @@
 use crate::chunk::{Chunk, Op};
 
+pub static DEBUG_PRINT_CODE: bool = true;
 pub static DEBUG_TRACE_EXECUTION: bool = true;
 
 impl Chunk {
