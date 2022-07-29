@@ -112,14 +112,63 @@ fn make_parse_rule_table() -> Vec<ParseRule> {
                 precedence: Precedence::Factor,
             },
         ),
-        (TokenType::Bang, ParseRule::default()),
-        (TokenType::BangEqual, ParseRule::default()),
+        (
+            TokenType::Bang,
+            ParseRule {
+                prefix: Some(|c| c.unary()),
+                infix: None,
+                precedence: Precedence::None,
+            },
+        ),
+        (
+            TokenType::BangEqual,
+            ParseRule {
+                prefix: None,
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Equality,
+            },
+        ),
         (TokenType::Equal, ParseRule::default()),
-        (TokenType::EqualEqual, ParseRule::default()),
-        (TokenType::Greater, ParseRule::default()),
-        (TokenType::GreaterEqual, ParseRule::default()),
-        (TokenType::Less, ParseRule::default()),
-        (TokenType::LessEqual, ParseRule::default()),
+        (
+            TokenType::EqualEqual,
+            ParseRule {
+                prefix: None,
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Equality,
+            },
+        ),
+        (
+            TokenType::Greater,
+            ParseRule {
+                prefix: None,
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Comparison,
+            },
+        ),
+        (
+            TokenType::GreaterEqual,
+            ParseRule {
+                prefix: None,
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Comparison,
+            },
+        ),
+        (
+            TokenType::Less,
+            ParseRule {
+                prefix: None,
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Comparison,
+            },
+        ),
+        (
+            TokenType::LessEqual,
+            ParseRule {
+                prefix: None,
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Comparison,
+            },
+        ),
         (TokenType::Identifier, ParseRule::default()),
         (TokenType::String, ParseRule::default()),
         (
@@ -133,17 +182,38 @@ fn make_parse_rule_table() -> Vec<ParseRule> {
         (TokenType::And, ParseRule::default()),
         (TokenType::Class, ParseRule::default()),
         (TokenType::Else, ParseRule::default()),
-        (TokenType::False, ParseRule::default()),
+        (
+            TokenType::False,
+            ParseRule {
+                prefix: Some(|c| c.literal()),
+                infix: None,
+                precedence: Precedence::None,
+            },
+        ),
         (TokenType::For, ParseRule::default()),
         (TokenType::Fun, ParseRule::default()),
         (TokenType::If, ParseRule::default()),
-        (TokenType::Nil, ParseRule::default()),
+        (
+            TokenType::Nil,
+            ParseRule {
+                prefix: Some(|c| c.literal()),
+                infix: None,
+                precedence: Precedence::None,
+            },
+        ),
         (TokenType::Or, ParseRule::default()),
         (TokenType::Print, ParseRule::default()),
         (TokenType::Return, ParseRule::default()),
         (TokenType::Super, ParseRule::default()),
         (TokenType::This, ParseRule::default()),
-        (TokenType::True, ParseRule::default()),
+        (
+            TokenType::True,
+            ParseRule {
+                prefix: Some(|c| c.literal()),
+                infix: None,
+                precedence: Precedence::None,
+            },
+        ),
         (TokenType::Var, ParseRule::default()),
         (TokenType::While, ParseRule::default()),
         (TokenType::Error, ParseRule::default()),
@@ -182,20 +252,28 @@ impl<'a> Compiler<'a> {
         self.parse_precedence(Precedence::Assignment);
     }
 
+    fn literal(&mut self) {
+        match self.parser.previous.unwrap().token_type {
+            TokenType::Nil => self.emit_op(Op::Nil),
+            TokenType::True => self.emit_op(Op::True),
+            TokenType::False => self.emit_op(Op::False),
+            _ => panic!(),
+        }
+    }
+
     fn number(&mut self) {
         let value = self.parser.previous.unwrap().lexeme.parse::<f64>().unwrap();
-        self.emit_constant(Value(value));
+        self.emit_constant(Value::Number(value));
     }
 
     fn unary(&mut self) {
         let operator = self.parser.previous.unwrap().token_type;
 
-        // Compile the operand.
         self.parse_precedence(Precedence::Unary);
 
-        // Emit the operator instruction.
         match operator {
             TokenType::Minus => self.emit_op(Op::Negate),
+            TokenType::Bang => self.emit_op(Op::Not),
             _ => {}
         };
     }
@@ -210,6 +288,21 @@ impl<'a> Compiler<'a> {
             TokenType::Minus => self.emit_op(Op::Subtract),
             TokenType::Star => self.emit_op(Op::Multiply),
             TokenType::Slash => self.emit_op(Op::Divide),
+            TokenType::BangEqual => {
+                self.emit_op(Op::Equal);
+                self.emit_op(Op::Not);
+            }
+            TokenType::EqualEqual => self.emit_op(Op::Equal),
+            TokenType::Greater => self.emit_op(Op::Greater),
+            TokenType::GreaterEqual => {
+                self.emit_op(Op::Less);
+                self.emit_op(Op::Not);
+            }
+            TokenType::Less => self.emit_op(Op::Less),
+            TokenType::LessEqual => {
+                self.emit_op(Op::Greater);
+                self.emit_op(Op::Not);
+            }
             _ => {}
         }
     }

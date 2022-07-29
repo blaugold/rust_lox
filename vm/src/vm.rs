@@ -38,6 +38,28 @@ impl VM {
     }
 }
 
+macro_rules! binary_op {
+    ($self:ident, $result_type:ident, $op:tt) => {
+        {
+            let b = $self.peek(0).clone();
+            let a = $self.peek(1).clone();
+
+            if let Value::Number(b) = b {
+                if let Value::Number(a) = a {
+                    $self.pop();
+                    $self.pop();
+                    $self.push(Value::$result_type(a $op b));
+                    None
+                } else {
+                    $self.runtime_error("Operands mut be numbers.")
+                }
+            } else {
+                $self.runtime_error("Operands mut be numbers.")
+            }
+        }
+    };
+}
+
 struct Runner<'a> {
     stack: &'a mut Vec<Value>,
     chunk: &'a Chunk,
@@ -75,24 +97,63 @@ impl<'a> Runner<'a> {
             let instruction = self.read_byte();
             let op: Result<Op, ()> = instruction.try_into();
             let op = unsafe { op.unwrap_unchecked() };
-            match op {
+            let result = match op {
                 Op::Constant => {
                     let constant = self.read_constant();
                     self.push(constant);
+                    None
                 }
-                Op::Add => self.binary_op(|a, b| a + b),
-                Op::Subtract => self.binary_op(|a, b| a - b),
-                Op::Multiply => self.binary_op(|a, b| a * b),
-                Op::Divide => self.binary_op(|a, b| a / b),
-                Op::Negate => self.unary_op(|x| -x),
+                Op::Nil => {
+                    self.push(Value::Nil);
+                    None
+                }
+                Op::True => {
+                    self.push(Value::Bool(true));
+                    None
+                }
+                Op::False => {
+                    self.push(Value::Bool(false));
+                    None
+                }
+                Op::Equal => {
+                    let b = self.pop();
+                    let a = self.pop();
+                    self.push(Value::Bool(a == b));
+                    None
+                }
+                Op::Greater => binary_op!(self, Bool, >),
+                Op::Less => binary_op!(self, Bool, <),
+                Op::Add => binary_op!(self, Number, +),
+                Op::Subtract => binary_op!(self, Number, -),
+                Op::Multiply => binary_op!(self, Number, *),
+                Op::Divide => binary_op!(self, Number, /),
+                Op::Negate => {
+                    let value = self.peek(0);
+                    match value {
+                        Value::Number(value) => {
+                            *value = -*value;
+                            None
+                        }
+                        _ => self.runtime_error("Operand must be a number."),
+                    }
+                }
+                Op::Not => {
+                    let value = self.peek(0);
+                    *value = Value::Bool(value.is_falsy());
+                    None
+                }
                 Op::Return => {
                     self.pop().print();
                     println!();
-                    if DEBUG_TRACE_EXECUTION {
-                        println!("!! End Execution !!")
-                    }
-                    return InterpretResult::Ok;
+                    Some(InterpretResult::Ok)
                 }
+            };
+
+            if let Some(result) = result {
+                if DEBUG_TRACE_EXECUTION {
+                    println!("!! End Execution !!")
+                }
+                return result;
             }
         }
     }
@@ -109,6 +170,13 @@ impl<'a> Runner<'a> {
         self.chunk.code().len() - self.ip.as_slice().len()
     }
 
+    fn peek(&mut self, index: usize) -> &mut Value {
+        unsafe {
+            let index = self.stack.len() - 1 - index;
+            self.stack.get_unchecked_mut(index)
+        }
+    }
+
     fn push(&mut self, value: Value) {
         self.stack.push(value)
     }
@@ -117,15 +185,19 @@ impl<'a> Runner<'a> {
         unsafe { self.stack.pop().unwrap_unchecked() }
     }
 
-    fn unary_op(&mut self, op: fn(f64) -> f64) {
-        let last = unsafe { self.stack.last_mut().unwrap_unchecked() };
-        *last = Value(op(last.0));
+    fn runtime_error(&mut self, message: &str) -> Option<InterpretResult> {
+        eprintln!("{}", message);
+
+        let instruction = self.instruction_offset() - 1;
+        let line = self.chunk.lines()[instruction];
+        eprintln!("[line {}] in script", line);
+
+        self.reset_stack();
+
+        Some(InterpretResult::RuntimeError)
     }
 
-    fn binary_op(&mut self, op: fn(f64, f64) -> f64) {
-        let b = self.pop();
-        let a = self.pop();
-        let result = Value(op(a.0, b.0));
-        self.push(result);
+    fn reset_stack(&mut self) {
+        self.stack.clear();
     }
 }

@@ -301,7 +301,7 @@ impl<'a> Scanner<'a> {
     }
 
     fn check_keyword(&mut self, start: usize, rest: &str, token_type: TokenType) -> TokenType {
-        if &self.start.as_str()[start..] == rest {
+        if &self.lexeme()[start..] == rest {
             return token_type;
         }
 
